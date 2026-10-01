@@ -19,6 +19,11 @@
   "model",
   "device_serial_number",
   "mac_address",
+  "realtime_webhook_section",
+  "enable_webhook_receiver",
+  "webhook_secret_key",
+  "column_break_wh",
+  "webhook_endpoint_url",
   "hrms_integration_section",
   "sync_to_employee_checkin",
   "biometric_attendance_log_settigns_section",
@@ -102,6 +107,34 @@
    "read_only": 1
   },
   {
+   "fieldname": "realtime_webhook_section",
+   "fieldtype": "Section Break",
+   "label": "Real-Time Webhook (HTTP Push / Alarm Host)"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_webhook_receiver",
+   "fieldtype": "Check",
+   "label": "Enable Real-Time Webhook Push"
+  },
+  {
+   "description": "Unique secret token to authenticate incoming pushes from Hikvision devices",
+   "fieldname": "webhook_secret_key",
+   "fieldtype": "Data",
+   "label": "Webhook Secret Key"
+  },
+  {
+   "fieldname": "column_break_wh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Copy and paste this URL into your Hikvision device HTTP Listening / Alarm Host settings",
+   "fieldname": "webhook_endpoint_url",
+   "fieldtype": "Data",
+   "label": "Push Receiver URL",
+   "read_only": 1
+  },
+  {
    "fieldname": "hrms_integration_section",
    "fieldtype": "Section Break",
    "label": "HRMS Integration"
@@ -140,7 +173,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-01 22:38:00.000000",
+ "modified": "2026-10-01 22:50:00.000000",
  "modified_by": "Administrator",
  "module": "Biometric Integration",
  "name": "Biometric Integration Settings",

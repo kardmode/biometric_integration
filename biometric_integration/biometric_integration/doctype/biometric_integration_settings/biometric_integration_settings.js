@@ -229,5 +229,23 @@ frappe.ui.form.on('Biometric Integration Settings', {
                 }
             });
         });
+
+        frm.add_custom_button(__('Regenerate Secret Key'), function() {
+            frappe.confirm(__('Are you sure you want to regenerate the webhook secret key? You will need to update the URL on your Hikvision devices.'), function() {
+                frappe.call({
+                    method: 'biometric_integration.biometric_integration.doctype.biometric_integration_settings.biometric_integration_settings.generate_webhook_key',
+                    freeze: true,
+                    callback: function(r) {
+                        if (r.message && r.message.status === 'success') {
+                            frappe.show_alert({
+                                message: __('New Webhook Secret Key Generated'),
+                                indicator: 'green'
+                            });
+                            frm.reload_doc();
+                        }
+                    }
+                });
+            });
+        }, __('Webhook'));
     }
 });

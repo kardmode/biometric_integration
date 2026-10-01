@@ -36,6 +36,12 @@ def get_device_tz_offset(settings=None):
 
 class BiometricIntegrationSettings(Document):
     def before_save(self):
+        if not self.webhook_secret_key:
+            self.webhook_secret_key = frappe.generate_hash(length=24)
+
+        site_url = frappe.utils.get_url()
+        self.webhook_endpoint_url = f"{site_url}/api/method/biometric_integration.biometric_integration.api.hikvision_event_receiver?token={self.webhook_secret_key}"
+
         try:
             if not self.ip or not self.username:
                 return
@@ -70,6 +76,20 @@ class BiometricIntegrationSettings(Document):
 
         except Exception as e:
             frappe.log_error(f"Device info fetch failed: {str(e)}", "Biometric Device Info")
+
+
+@frappe.whitelist()
+def generate_webhook_key():
+    doc = frappe.get_doc("Biometric Integration Settings", "Biometric Integration Settings")
+    doc.webhook_secret_key = frappe.generate_hash(length=24)
+    site_url = frappe.utils.get_url()
+    doc.webhook_endpoint_url = f"{site_url}/api/method/biometric_integration.biometric_integration.api.hikvision_event_receiver?token={doc.webhook_secret_key}"
+    doc.save(ignore_permissions=True)
+    return {
+        "status": "success",
+        "webhook_secret_key": doc.webhook_secret_key,
+        "webhook_endpoint_url": doc.webhook_endpoint_url
+    }
 
 
 @frappe.whitelist()
