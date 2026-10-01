@@ -20,6 +20,7 @@ def execute(filters=None):
     # Get all active employees with attendance device IDs and employment type
     all_active_employees = frappe.db.sql("""
         SELECT 
+            name as employee,
             employee_name,
             attendance_device_id,
             employment_type
@@ -36,6 +37,7 @@ def execute(filters=None):
     # Get employees who had at least one punch that day with employment type
     present_employees = frappe.db.sql("""
         SELECT DISTINCT 
+            e.name as employee,
             e.employee_name,
             e.attendance_device_id,
             e.employment_type
@@ -47,6 +49,20 @@ def execute(filters=None):
     
     # Create a set of present employee IDs for faster lookup
     present_employee_ids = {emp.attendance_device_id for emp in present_employees}
+
+    # Fetch dynamic Shift Assignments if HRMS Shift Assignment table exists
+    shift_map = {}
+    if frappe.db.table_exists("Shift Assignment"):
+        shifts = frappe.db.sql("""
+            SELECT sa.employee, st.end_time, st.start_time, st.early_exit_grace_period, st.late_entry_grace_period
+            FROM `tabShift Assignment` sa
+            JOIN `tabShift Type` st ON st.name = sa.shift_type
+            WHERE sa.start_date <= %(selected_date)s
+              AND (sa.end_date IS NULL OR sa.end_date >= %(selected_date)s)
+              AND sa.docstatus = 1
+        """, {"selected_date": selected_date}, as_dict=True)
+        for s in shifts:
+            shift_map[s.employee] = s
 
     # Fetch all Biometric Leave Log entries for selected date
     leave_logs = frappe.db.sql("""
@@ -102,15 +118,10 @@ def execute(filters=None):
         hours = total_seconds / 3600
         return start_hour <= hours < end_hour
 
-    def check_early_leave_present(first_punch_time, last_punch_time, employee_id, employment_type):
+    def check_early_leave_present(first_punch_time, last_punch_time, employee_id, employment_type, emp_doc_name=None):
         """
         For present employees only.
         Checks leave_to against first punch, leave_from against last punch.
-        Returns:
-          "1"         - punch matches logged leave time within +-15 min (or came before leave_to)
-          "2"         - no leave log but left before shift end (unlogged early leave)
-          "0 (HH:MM)" - left before logged leave_from time, or came after leave_to
-          ""          - full day worked, or no employment_type
         """
         def fmt(total_seconds):
             h, m = divmod(int(total_seconds / 60), 60)
@@ -119,15 +130,27 @@ def execute(filters=None):
         emp_id = str(employee_id)
         leave_entry = leave_log_map.get(emp_id)
 
-        shift_end_times = {
-            "Full-time": 19 * 3600 + 40 * 60,  # 7:40 PM = 19:40
-            "Mid Shift": 19 * 3600,              # 7:00 PM = 19:00
-            "Part-time": 18 * 3600               # 6:00 PM = 18:00
-        }
-        tolerance_seconds = 15 * 60
+        # Dynamic shift lookup from HRMS
+        shift_data = shift_map.get(emp_doc_name) or shift_map.get(emp_id)
+        expected_end = None
         shift_end_tolerance = 30 * 60
+        tolerance_seconds = 15 * 60
 
-        expected_end = shift_end_times.get(employment_type)
+        if shift_data and shift_data.get("end_time"):
+            end_t = shift_data["end_time"]
+            if hasattr(end_t, "total_seconds"):
+                expected_end = end_t.total_seconds()
+            else:
+                expected_end = parse_time_to_seconds(str(end_t))
+            if shift_data.get("early_exit_grace_period"):
+                shift_end_tolerance = int(shift_data["early_exit_grace_period"]) * 60
+        else:
+            shift_end_times = {
+                "Full-time": 19 * 3600 + 40 * 60,  # 7:40 PM = 19:40
+                "Mid Shift": 19 * 3600,              # 7:00 PM = 19:00
+                "Part-time": 18 * 3600               # 6:00 PM = 18:00
+            }
+            expected_end = shift_end_times.get(employment_type)
 
         # If employment_type is not set or not recognised, give no flag
         if expected_end is None:
@@ -153,43 +176,37 @@ def execute(filters=None):
             if first_punch_time is not None:
                 first_punch_seconds = first_punch_time.total_seconds()
                 diff = first_punch_seconds - leave_to_seconds
-                # Came before or within +-15 min of leave_to -> good -> "1"
                 if diff <= tolerance_seconds:
                     result_leave_to = "1"
                 else:
-                    # Came after leave_to by more than 15 min
                     result_leave_to = f"0 ({fmt(leave_to_seconds)})"
 
         # Check leave_from against last punch
         if leave_from_seconds is not None:
-            # Skip if leave_from is at/near shift end (full day)
             if leave_from_seconds < (expected_end - shift_end_tolerance):
                 if last_punch_time is not None:
                     last_punch_seconds = last_punch_time.total_seconds()
                     diff = last_punch_seconds - leave_from_seconds
                     if diff > tolerance_seconds:
-                        # Still present after leave_from -> leave taken, present beyond -> "1"
                         result_leave_from = "1"
                     elif abs(diff) <= tolerance_seconds:
                         result_leave_from = "1"
                     else:
                         result_leave_from = f"0 ({fmt(leave_from_seconds)})"
 
-        # Build final result: leave_to result first, leave_from result second
         parts = [r for r in [result_leave_to, result_leave_from] if r is not None]
 
-        # Leave log exists but no result produced (e.g. leave_from near shift end) -> "1"
         if not parts:
             return "1"
 
-        # If both are "1" show just "1"
         if all(p == "1" for p in parts):
             return "1"
 
         return " | ".join(parts)
 
-    def check_early_leave_absent(employee_id, employment_type):
-        if not employment_type or employment_type not in ("Full-time", "Mid Shift", "Part-time"):
+    def check_early_leave_absent(employee_id, employment_type, emp_doc_name=None):
+        shift_data = shift_map.get(emp_doc_name) or shift_map.get(str(employee_id))
+        if not shift_data and (not employment_type or employment_type not in ("Full-time", "Mid Shift", "Part-time")):
             return ""
 
         emp_id = str(employee_id)
@@ -198,12 +215,9 @@ def execute(filters=None):
         if leave_entry is None:
             return "2"  # absent, no leave log
 
-        # Has leave log — check if full day
         if leave_entry.get("full_day") == 1:
-            return "1"  # full day leave — expected absent
+            return "1"  # full day leave
 
-        # Half day leave (leave_from only OR leave_to only)
-        # Employee should have been present for half day but wasn't
         leave_from_seconds = leave_entry.get("leave_from")
         leave_to_seconds = leave_entry.get("leave_to")
 
@@ -212,14 +226,11 @@ def execute(filters=None):
             return f"{h:02}:{m:02}"
 
         if leave_from_seconds is not None and leave_to_seconds is None:
-            # Should have worked morning, left at leave_from — but fully absent
             return f"0 ({fmt(leave_from_seconds)})"
 
         if leave_to_seconds is not None and leave_from_seconds is None:
-            # Should have returned at leave_to — but fully absent
             return f"0 ({fmt(leave_to_seconds)})"
 
-        # Both from and to exist — partial leave, employee fully absent
         return "1"
     
     # First pass: determine max_punches
@@ -343,7 +354,7 @@ def execute(filters=None):
                 if actual_punches:
                     first_punch = actual_punches[0]["punch_time"]
                     last_punch = actual_punches[-1]["punch_time"]
-                    early_leave_status = check_early_leave_present(first_punch, last_punch, employee.attendance_device_id, employee.employment_type)
+                    early_leave_status = check_early_leave_present(first_punch, last_punch, employee.attendance_device_id, employee.employment_type, employee.get("employee"))
                     row_data["early_leave"] = early_leave_status
                     
                     # Highlight red for everything except pure "1"
@@ -405,7 +416,7 @@ def execute(filters=None):
         absent_row["employee_name"] = employee.employee_name
         absent_row["employee_id"] = employee.attendance_device_id
 
-        early_leave_status = check_early_leave_absent(employee.attendance_device_id, employee.employment_type)
+        early_leave_status = check_early_leave_absent(employee.attendance_device_id, employee.employment_type, employee.get("employee"))
         absent_row["early_leave"] = early_leave_status
 
         for i in range(1, max_punches + 1):
