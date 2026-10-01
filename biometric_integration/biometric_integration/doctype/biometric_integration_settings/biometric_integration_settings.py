@@ -5,7 +5,34 @@ import frappe
 import requests
 from requests.auth import HTTPDigestAuth
 from datetime import datetime, timedelta
+import pytz
+from frappe.utils import get_system_timezone
 from frappe.model.document import Document
+from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin
+
+
+def get_device_base_url(settings):
+    """Construct base URL using configured protocol, IP, and optional port."""
+    protocol = (getattr(settings, "protocol", None) or "HTTP").lower()
+    ip = settings.ip.strip() if settings.ip else ""
+    port = getattr(settings, "port", None)
+    if port and str(port).strip():
+        return f"{protocol}://{ip}:{str(port).strip()}"
+    return f"{protocol}://{ip}"
+
+
+def get_device_tz_offset(settings=None):
+    """Determine ISO-8601 timezone offset (e.g., +04:00, +05:30) dynamically."""
+    tz_name = (settings and getattr(settings, "timezone", None)) or get_system_timezone() or "UTC"
+    try:
+        tz = pytz.timezone(tz_name)
+        offset = datetime.now(tz).strftime("%z")  # e.g., '+0530', '+0800', '-0500'
+        if len(offset) == 5:
+            return f"{offset[:3]}:{offset[3:]}"
+    except Exception:
+        pass
+    return "+00:00"
+
 
 class BiometricIntegrationSettings(Document):
     def before_save(self):
@@ -17,7 +44,8 @@ class BiometricIntegrationSettings(Document):
             if not password:
                 return
 
-            url = f"http://{self.ip}/ISAPI/System/deviceInfo"
+            base_url = get_device_base_url(self)
+            url = f"{base_url}/ISAPI/System/deviceInfo"
 
             response = requests.get(
                 url,
@@ -43,6 +71,7 @@ class BiometricIntegrationSettings(Document):
         except Exception as e:
             frappe.log_error(f"Device info fetch failed: {str(e)}", "Biometric Device Info")
 
+
 @frappe.whitelist()
 def fetch_device_info():
     doc = frappe.get_doc("Biometric Integration Settings", "Biometric Integration Settings")
@@ -54,13 +83,15 @@ def fetch_device_info():
         "message": "Device info updated successfully"
     }
 
+
 @frappe.whitelist()
 def get_employee_face(emp_no):
     try:
         settings = frappe.get_doc("Biometric Integration Settings", "Biometric Integration Settings")
         password = settings.get_password("password")
+        base_url = get_device_base_url(settings)
 
-        url = f"http://{settings.ip}/ISAPI/AccessControl/UserInfo/Search?format=json"
+        url = f"{base_url}/ISAPI/AccessControl/UserInfo/Search?format=json"
         headers = {"Content-Type": "application/json"}
 
         payload = {
@@ -90,7 +121,6 @@ def get_employee_face(emp_no):
         if not user_info:
             return {"status": "error", "message": "Employee not found"}
 
-        # 👉 Hikvision stores face under faceURL OR faceData
         face_url = user_info[0].get("faceURL")
         face_data = user_info[0].get("faceData")
 
@@ -105,7 +135,8 @@ def get_employee_face(emp_no):
     except Exception as e:
         frappe.log_error(f"Face fetch failed: {str(e)}", "Biometric Face Fetch")
         return {"status": "error", "message": str(e)}
-    
+
+
 @frappe.whitelist()
 def check_machine_connection():
     try:
@@ -126,7 +157,9 @@ def check_machine_connection():
                 "details": "Machine password is missing.",
             }
 
-        url = f"http://{settings.ip}/ISAPI/AccessControl/AcsEvent?format=json"
+        base_url = get_device_base_url(settings)
+        tz_offset = get_device_tz_offset(settings)
+        url = f"{base_url}/ISAPI/AccessControl/AcsEvent?format=json"
         headers = {"Content-Type": "application/json"}
         now = datetime.now().strftime("%Y-%m-%d")
 
@@ -137,8 +170,8 @@ def check_machine_connection():
                 "maxResults": 1,
                 "major": 5,
                 "minor": 75,
-                "startTime": f"{now}T00:00:00+08:00",
-                "endTime": f"{now}T23:59:59+08:00",
+                "startTime": f"{now}T00:00:00{tz_offset}",
+                "endTime": f"{now}T23:59:59{tz_offset}",
             }
         }
 
@@ -155,7 +188,7 @@ def check_machine_connection():
             return {
                 "status": "success",
                 "message": "Connection successful.",
-                "details": f"Connected to {settings.ip}. Device response status: 200.",
+                "details": f"Connected to {base_url}. Device response status: 200.",
             }
 
         return {
@@ -180,7 +213,8 @@ def check_machine_connection():
 
 
 def _get_employee_name_from_device(settings, password, emp_no):
-    url = f"http://{settings.ip}/ISAPI/AccessControl/UserInfo/Search?format=json"
+    base_url = get_device_base_url(settings)
+    url = f"{base_url}/ISAPI/AccessControl/UserInfo/Search?format=json"
     headers = {"Content-Type": "application/json"}
 
     payloads = [
@@ -210,7 +244,7 @@ def _get_employee_name_from_device(settings, password, emp_no):
                 headers=headers,
                 json=payload,
                 verify=False,
-                timeout=30,
+                timeout=10,
             )
             if response.status_code != 200:
                 continue
@@ -224,19 +258,20 @@ def _get_employee_name_from_device(settings, password, emp_no):
 
     return ""
 
+
 @frappe.whitelist()
 def set_employee_name_on_device(emp_no, emp_name=None):
     try:
         settings = frappe.get_doc("Biometric Integration Settings", "Biometric Integration Settings")
         password = settings.get_password("password")
+        base_url = get_device_base_url(settings)
 
         if not emp_no:
             return {"status": "error", "message": "Employee No is required"}
 
-        url = f"http://{settings.ip}/ISAPI/AccessControl/UserInfo/Modify?format=json"
+        url = f"{base_url}/ISAPI/AccessControl/UserInfo/Modify?format=json"
         headers = {"Content-Type": "application/json"}
 
-        # 👉 If emp_name not passed OR empty → remove name
         name_value = str(emp_name) if emp_name else ""
 
         payload = {
@@ -277,38 +312,46 @@ def _get_employee_name(settings, password, emp_no, name_cache=None):
     if cache_key in cache:
         return cache[cache_key]
 
-    employee_name = _get_employee_name_from_device(settings, password, emp_no)
+    # Fast lookup in local ERPNext Employee records first
+    local_name = frappe.db.get_value("Employee", {"attendance_device_id": cache_key}, "employee_name")
+    if local_name:
+        cache[cache_key] = local_name
+        return local_name
 
+    employee_name = _get_employee_name_from_device(settings, password, emp_no)
     employee_name = employee_name or ""
     cache[cache_key] = employee_name
     return employee_name
+
 
 @frappe.whitelist()
 def sync_attendance(from_date=None, from_time=None, to_date=None, to_time=None):
     try:
         settings = frappe.get_doc("Biometric Integration Settings", "Biometric Integration Settings")
-        url = f"http://{settings.ip}/ISAPI/AccessControl/AcsEvent?format=json"
+        base_url = get_device_base_url(settings)
+        tz_offset = get_device_tz_offset(settings)
+        url = f"{base_url}/ISAPI/AccessControl/AcsEvent?format=json"
         decrypted_password = settings.get_password("password")
 
-        _from_date = from_date or settings.start_date_and_time.split(" ")[0]
+        _from_date = from_date or (getattr(settings, "start_date_and_time", None) and settings.start_date_and_time.split(" ")[0]) or datetime.now().strftime("%Y-%m-%d")
         _from_time = from_time or "00:00:00"
-        _to_date = to_date or settings.end_date_and_time.split(" ")[0]
+        _to_date = to_date or (getattr(settings, "end_date_and_time", None) and settings.end_date_and_time.split(" ")[0]) or datetime.now().strftime("%Y-%m-%d")
         _to_time = to_time or "23:59:59"
 
-        start_time = datetime.strptime(f"{_from_date} {_from_time}", "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%dT%H:%M:%S+08:00")
-        end_time = datetime.strptime(f"{_to_date} {_to_time}", "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        start_time = datetime.strptime(f"{_from_date} {_from_time}", "%Y-%m-%d %H:%M:%S").strftime(f"%Y-%m-%dT%H:%M:%S{tz_offset}")
+        end_time = datetime.strptime(f"{_to_date} {_to_time}", "%Y-%m-%d %H:%M:%S").strftime(f"%Y-%m-%dT%H:%M:%S{tz_offset}")
 
         headers = {"Content-Type": "application/json"}
 
         payload = {
             "AcsEventCond": {
-                "searchID": "123456789",
+                "searchID": "attendance-sync",
                 "searchResultPosition": 0,
                 "maxResults": 1,
                 "major": 5,
                 "minor": 75,
-                "startTime": start_time,   # <-- must use start_time not settings field
-                "endTime": end_time,       # <-- must use end_time not settings field
+                "startTime": start_time,
+                "endTime": end_time,
             }
         }
 
@@ -318,11 +361,11 @@ def sync_attendance(from_date=None, from_time=None, to_date=None, to_time=None):
             headers=headers,
             json=payload,
             verify=False,
-            timeout=600,
+            timeout=60,
         )
 
         if response.status_code != 200:
-            frappe.throw(f"Failed to fetch attendance logs. Status: {response.status_code}, Response: {response.text}")
+            frappe.throw(f"Failed to connect to device. Status: {response.status_code}, Response: {response.text}")
 
         data = response.json()
         total_records = data.get("AcsEvent", {}).get("totalMatches", 0)
@@ -330,15 +373,13 @@ def sync_attendance(from_date=None, from_time=None, to_date=None, to_time=None):
         if total_records == 0:
             return "No attendance records found for the given time period."
 
-        if total_records > 1500:
-            return "Too many records to process. Please reduce the date range and try again."
-
         count = 0
         skipped = 0
         employee_name_cache = {}
         position = 0
-        batch_size = 30
-        frappe.publish_progress(0, title="Attendance Sync", description="Starting attendance sync...")
+        batch_size = 50
+
+        frappe.publish_progress(0, title="Attendance Sync", description=f"Found {total_records} records. Starting sync...")
 
         while True:
             payload["AcsEventCond"]["searchResultPosition"] = position
@@ -350,12 +391,12 @@ def sync_attendance(from_date=None, from_time=None, to_date=None, to_time=None):
                 headers=headers,
                 json=payload,
                 verify=False,
-                timeout=600,
+                timeout=60,
             )
 
             if response.status_code != 200:
-                frappe.publish_progress(100, title="Attendance Sync", description=f"Failed to fetch attendance logs. Status: {response.status_code}")
-                frappe.throw(f"Failed to fetch attendance logs. Status: {response.status_code}, Response: {response.text}")
+                frappe.publish_progress(100, title="Attendance Sync", description=f"Sync interrupted at position {position}.")
+                frappe.throw(f"Failed to fetch logs at position {position}. Status: {response.status_code}")
 
             data = response.json()
             events = data.get("AcsEvent", {}).get("InfoList", [])
@@ -409,18 +450,28 @@ def sync_attendance(from_date=None, from_time=None, to_date=None, to_time=None):
                     try:
                         doc.save(ignore_permissions=True)
                         count += 1
+                        create_employee_checkin(emp_no, event_datetime, log_type=None, device_id=settings.device_name or settings.ip)
                     except Exception as e:
-                        print(f"Insert failed for employee {emp_no}: {str(e)}")
+                        frappe.log_error(f"Insert failed for employee {emp_no}: {str(e)}", "Biometric Punch Insert Error")
                         continue
                 else:
                     skipped += 1
 
             position += len(events)
+            progress_pct = min(100, int((position / total_records) * 100)) if total_records else 100
+            frappe.publish_progress(progress_pct, title="Attendance Sync", description=f"Processed {position}/{total_records} records...")
+
+            # Periodic commit to free lock buffer for large datasets
+            if position % 200 == 0:
+                frappe.db.commit()
+
             if len(events) < batch_size:
                 break
 
         frappe.db.commit()
+        frappe.publish_progress(100, title="Attendance Sync", description="Sync completed!")
         return f"{count} attendance records synced successfully. {skipped} duplicate punches skipped."
+
     except Exception as e:
         frappe.throw(f"Error syncing attendance: {str(e)}")
 
@@ -431,12 +482,24 @@ def scheduled_attendance_sync():
         yesterday_date = today_date - timedelta(days=1)
         day_before_yesterday_date = today_date - timedelta(days=2)
 
-        sync_attendance(
-            from_date=str(day_before_yesterday_date),
-            from_time="00:00:00",
-            to_date=str(yesterday_date),
-            to_time="23:59:59"
-        )
+        # Sync all active devices if Biometric Device entries exist
+        devices = frappe.get_all("Biometric Device", filters={"enabled": 1}, pluck="name") if frappe.db.table_exists("Biometric Device") else []
+        if devices:
+            from biometric_integration.biometric_integration.doctype.biometric_device.biometric_device import sync_all_active_devices
+            sync_all_active_devices(
+                from_date=str(day_before_yesterday_date),
+                from_time="00:00:00",
+                to_date=str(yesterday_date),
+                to_time="23:59:59"
+            )
+        else:
+            # Fallback to single settings
+            sync_attendance(
+                from_date=str(day_before_yesterday_date),
+                from_time="00:00:00",
+                to_date=str(yesterday_date),
+                to_time="23:59:59"
+            )
 
         frappe.logger().info("Scheduled attendance sync started successfully")
 
@@ -500,8 +563,9 @@ def update_all_manual_punches():
                     doc.append("punch_table", punch)
 
                 doc.save(ignore_permissions=True)
-                frappe.db.commit()
+                create_employee_checkin(attendance_device_id, punch_datetime, log_type=None, device_id="Manual")
 
+        frappe.db.commit()
         return {"status": "success", "message": "Manual punches updated successfully for all employees."}
 
     except frappe.ValidationError as e:

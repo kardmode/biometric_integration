@@ -1,9 +1,7 @@
-# Copyright (c) 2025, NDV and contributors
-# For license information, please see license.txt
-
 import frappe
 from datetime import datetime, timedelta
 from frappe.model.document import Document
+from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin
 
 class BiometricManualPunch(Document):
     def before_save(self):
@@ -60,6 +58,7 @@ def add_manual_punch(employee, punch_date, punch_time):
             doc.append('punch_table', punch)
 
         doc.save(ignore_permissions=True)
+        create_employee_checkin(employee, punch_datetime, log_type=None, device_id="Manual")
         frappe.db.commit()
 
         return {'status': 'success', 'message': f"Manual punch for {employee_name} on {punch_date} at {punch_time} added successfully."}

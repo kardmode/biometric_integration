@@ -1,39 +1,78 @@
 {
  "actions": [],
  "allow_copy": 1,
- "creation": "2025-02-11 19:01:02.427864",
+ "autoname": "format:{device_name}",
+ "creation": "2026-10-01 22:35:00.000000",
  "default_view": "List",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "general_settings_section",
+  "general_section",
+  "device_name",
+  "enabled",
+  "device_direction",
+  "location",
+  "column_break_1",
   "ip",
   "protocol",
   "port",
   "username",
   "password",
   "timezone",
-  "column_break_zuej",
-  "device_name",
+  "device_info_section",
+  "status",
+  "last_sync",
+  "column_break_2",
   "device_id",
   "model",
   "device_serial_number",
-  "mac_address",
-  "hrms_integration_section",
-  "sync_to_employee_checkin",
-  "biometric_attendance_log_settigns_section",
-  "enable_biometric_attendance_log_deletion",
-  "delete_logs_after_days"
+  "mac_address"
  ],
  "fields": [
   {
-   "fieldname": "general_settings_section",
+   "fieldname": "general_section",
    "fieldtype": "Section Break",
-   "label": "General Settings"
+   "label": "Device Details"
+  },
+  {
+   "fieldname": "device_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Device Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled"
+  },
+  {
+   "default": "Auto",
+   "fieldname": "device_direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Direction",
+   "options": "Auto\nIN\nOUT"
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Location / Gate"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "ip",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "IP Address",
    "reqd": 1
   },
@@ -68,14 +107,29 @@
    "label": "Timezone"
   },
   {
-   "fieldname": "column_break_zuej",
-   "fieldtype": "Column Break"
+   "fieldname": "device_info_section",
+   "fieldtype": "Section Break",
+   "label": "Status & Hardware Info"
   },
   {
-   "fieldname": "device_name",
-   "fieldtype": "Data",
-   "label": "Device Name",
+   "default": "Unknown",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Connection Status",
+   "options": "Online\nOffline\nUnknown",
    "read_only": 1
+  },
+  {
+   "fieldname": "last_sync",
+   "fieldtype": "Datetime",
+   "label": "Last Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "device_id",
@@ -100,50 +154,16 @@
    "fieldtype": "Data",
    "label": "MAC Address",
    "read_only": 1
-  },
-  {
-   "fieldname": "hrms_integration_section",
-   "fieldtype": "Section Break",
-   "label": "HRMS Integration"
-  },
-  {
-   "default": "1",
-   "description": "Automatically create standard Employee Checkin records for HRMS auto-attendance and payroll processing",
-   "fieldname": "sync_to_employee_checkin",
-   "fieldtype": "Check",
-   "label": "Sync to Employee Checkin"
-  },
-  {
-   "depends_on": "eval: doc.ip",
-   "fieldname": "biometric_attendance_log_settigns_section",
-   "fieldtype": "Section Break",
-   "label": "Biometric Attendance Log Settings"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_biometric_attendance_log_deletion",
-   "fieldtype": "Check",
-   "label": "Enable Biometric Attendance Log Deletion"
-  },
-  {
-   "depends_on": "eval: doc.enable_biometric_attendance_log_deletion",
-   "fieldname": "delete_logs_after_days",
-   "fieldtype": "Int",
-   "label": "Delete Logs After (Days)",
-   "mandatory_depends_on": "eval: doc.enable_biometric_attendance_log_deletion",
-   "non_negative": 1,
-   "precision": "0"
   }
  ],
  "grid_page_length": 50,
- "hide_toolbar": 1,
  "index_web_pages_for_search": 1,
- "issingle": 1,
  "links": [],
- "modified": "2026-10-01 22:38:00.000000",
+ "modified": "2026-10-01 22:35:00.000000",
  "modified_by": "Administrator",
  "module": "Biometric Integration",
- "name": "Biometric Integration Settings",
+ "name": "Biometric Device",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {
@@ -162,13 +182,19 @@
    "email": 1,
    "print": 1,
    "read": 1,
-   "role": "CE HR",
+   "role": "HR Manager",
    "share": 1,
    "write": 1
+  },
+  {
+   "read": 1,
+   "role": "HR User"
   }
  ],
  "row_format": "Dynamic",
+ "search_fields": "device_name,ip,location,model",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "device_name"
 }
