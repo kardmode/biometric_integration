@@ -97,7 +97,7 @@ def execute(filters=None):
             e.attendance_device_id,
             e.employment_type
         FROM `tabBiometric Leave Log` l
-        JOIN `tabEmployee` e ON e.attendance_device_id = l.employee_no
+        JOIN `tabEmployee` e ON (e.attendance_device_id = l.employee_no OR (e.attendance_device_id REGEXP "^[0-9]+$" AND l.employee_no REGEXP "^[0-9]+$" AND TRIM(LEADING "0" FROM e.attendance_device_id) = TRIM(LEADING "0" FROM l.employee_no)))
         WHERE {where_clause}
         ORDER BY {order_by}
     """, conditions, as_dict=True)

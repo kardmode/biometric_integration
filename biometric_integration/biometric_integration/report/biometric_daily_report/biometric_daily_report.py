@@ -43,7 +43,7 @@ def execute(filters=None):
             e.employment_type
         FROM `tabBiometric Attendance Log` bal
         JOIN `tabBiometric Attendance Punch Table` punch ON punch.parent = bal.name
-        JOIN `tabEmployee` e ON e.attendance_device_id = bal.employee_no
+        JOIN `tabEmployee` e ON (e.attendance_device_id = bal.employee_no OR (e.attendance_device_id REGEXP "^[0-9]+$" AND bal.employee_no REGEXP "^[0-9]+$" AND TRIM(LEADING "0" FROM e.attendance_device_id) = TRIM(LEADING "0" FROM bal.employee_no)))
         WHERE bal.event_date = %(selected_date)s
     """, {"selected_date": selected_date}, as_dict=True)
     
@@ -238,7 +238,7 @@ def execute(filters=None):
         attendance_logs = frappe.db.sql("""
             SELECT al.name, al.event_date
             FROM `tabBiometric Attendance Log` al
-            WHERE al.employee_no = %(employee_no)s AND al.event_date = %(selected_date)s
+            WHERE (al.employee_no = %(employee_no)s OR (al.employee_no REGEXP "^[0-9]+$" AND %(employee_no)s REGEXP "^[0-9]+$" AND TRIM(LEADING "0" FROM al.employee_no) = TRIM(LEADING "0" FROM %(employee_no)s))) AND al.event_date = %(selected_date)s
             ORDER BY al.event_date
         """, {"employee_no": employee.attendance_device_id, "selected_date": selected_date}, as_dict=True)
         
@@ -289,7 +289,7 @@ def execute(filters=None):
         attendance_logs = frappe.db.sql("""
             SELECT al.name, al.event_date
             FROM `tabBiometric Attendance Log` al
-            WHERE al.employee_no = %(employee_no)s AND al.event_date = %(selected_date)s
+            WHERE (al.employee_no = %(employee_no)s OR (al.employee_no REGEXP "^[0-9]+$" AND %(employee_no)s REGEXP "^[0-9]+$" AND TRIM(LEADING "0" FROM al.employee_no) = TRIM(LEADING "0" FROM %(employee_no)s))) AND al.event_date = %(selected_date)s
             ORDER BY al.event_date
         """, {"employee_no": employee.attendance_device_id, "selected_date": selected_date}, as_dict=True)
         

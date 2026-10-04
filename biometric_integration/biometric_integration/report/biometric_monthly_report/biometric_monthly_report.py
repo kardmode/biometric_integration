@@ -145,7 +145,7 @@ def execute(filters=None):
             attendance_logs = frappe.db.sql("""
                 SELECT al.name
                 FROM `tabBiometric Attendance Log` al
-                WHERE al.employee_no = %(employee_no)s 
+                WHERE (al.employee_no = %(employee_no)s OR (al.employee_no REGEXP '^[0-9]+$' AND %(employee_no)s REGEXP '^[0-9]+$' AND TRIM(LEADING '0' FROM al.employee_no) = TRIM(LEADING '0' FROM %(employee_no)s)))
                 AND al.event_date = %(date)s
             """, {
                 "employee_no": employee.employee_no,

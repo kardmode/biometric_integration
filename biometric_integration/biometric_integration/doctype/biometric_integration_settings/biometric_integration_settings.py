@@ -56,26 +56,26 @@ class BiometricIntegrationSettings(Document):
             response = requests.get(
                 url,
                 auth=HTTPDigestAuth(self.username, password),
-                timeout=10,
+                timeout=2,
                 verify=False
             )
 
-            if response.status_code != 200:
-                return
+            if response.status_code == 200:
+                import xml.etree.ElementTree as ET
 
-            import xml.etree.ElementTree as ET
+                root = ET.fromstring(response.content)
+                ns = {'ns': 'http://www.isapi.org/ver20/XMLSchema'}
 
-            root = ET.fromstring(response.content)
-            ns = {'ns': 'http://www.isapi.org/ver20/XMLSchema'}
+                self.device_name = root.find('ns:deviceName', ns).text if root.find('ns:deviceName', ns) is not None else ""
+                self.device_id = root.find('ns:deviceID', ns).text if root.find('ns:deviceID', ns) is not None else ""
+                self.model = root.find('ns:model', ns).text if root.find('ns:model', ns) is not None else ""
+                self.device_serial_number = root.find('ns:serialNumber', ns).text if root.find('ns:serialNumber', ns) is not None else ""
+                self.mac_address = root.find('ns:macAddress', ns).text if root.find('ns:macAddress', ns) is not None else ""
 
-            self.device_name = root.find('ns:deviceName', ns).text if root.find('ns:deviceName', ns) is not None else ""
-            self.device_id = root.find('ns:deviceID', ns).text if root.find('ns:deviceID', ns) is not None else ""
-            self.model = root.find('ns:model', ns).text if root.find('ns:model', ns) is not None else ""
-            self.device_serial_number = root.find('ns:serialNumber', ns).text if root.find('ns:serialNumber', ns) is not None else ""
-            self.mac_address = root.find('ns:macAddress', ns).text if root.find('ns:macAddress', ns) is not None else ""
-
-        except Exception as e:
-            frappe.log_error(f"Device info fetch failed: {str(e)}", "Biometric Device Info")
+        except Exception:
+            # Device may be on a private local subnet not directly reachable from cloud.
+            # Never block saving settings when device is offline or behind NAT.
+            pass
 
 
 @frappe.whitelist()
@@ -224,7 +224,7 @@ def check_machine_connection():
             "details": str(e),
         }
     except Exception as e:
-        frappe.log_error(f"Machine connection check failed: {str(e)}", "Biometric Machine Connection Check")
+        frappe.log_error(title="Biometric Machine Connection Check", message=str(e))
         return {
             "status": "error",
             "message": "Connection check failed.",
@@ -321,7 +321,7 @@ def set_employee_name_on_device(emp_no, emp_name=None):
     except requests.exceptions.RequestException as e:
         return {"status": "error", "message": f"Network error: {str(e)}"}
     except Exception as e:
-        frappe.log_error(f"Set employee name failed: {str(e)}", "Biometric Set Employee Name")
+        frappe.log_error(title="Biometric Set Employee Name", message=str(e))
         return {"status": "error", "message": str(e)}
 
 
@@ -472,7 +472,7 @@ def sync_attendance(from_date=None, from_time=None, to_date=None, to_time=None):
                         count += 1
                         create_employee_checkin(emp_no, event_datetime, log_type=None, device_id=settings.device_name or settings.ip)
                     except Exception as e:
-                        frappe.log_error(f"Insert failed for employee {emp_no}: {str(e)}", "Biometric Punch Insert Error")
+                        frappe.log_error(title="Biometric Punch Insert Error", message=f"Insert failed for employee {emp_no}: {str(e)}")
                         continue
                 else:
                     skipped += 1
@@ -525,7 +525,7 @@ def scheduled_attendance_sync():
 
     except Exception as e:
         frappe.logger().error(f"Scheduled attendance sync failed: {str(e)}")
-        frappe.log_error(f"Scheduled attendance sync failed: {str(e)}", "Daily Attendance Sync Error")
+        frappe.log_error(title="Daily Attendance Sync Error", message=f"Scheduled attendance sync failed: {str(e)}")
 
 
 @frappe.whitelist()

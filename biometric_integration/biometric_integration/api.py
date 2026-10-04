@@ -5,7 +5,7 @@ import json
 import frappe
 from datetime import datetime
 from frappe import _
-from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin
+from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin, find_employee
 
 
 @frappe.whitelist(allow_guest=True)
@@ -90,13 +90,24 @@ def hikvision_event_receiver():
                 except Exception:
                     continue
 
-            # Employee name lookup
-            emp_name = frappe.db.get_value("Employee", {"attendance_device_id": str(emp_no)}, "employee_name") or ""
+            # Smart employee lookup (supports leading zero normalization & custom naming series)
+            emp = find_employee(emp_no)
+            emp_name = emp.employee_name if emp else ""
+            log_emp_no = (emp.attendance_device_id if emp and emp.get("attendance_device_id") else str(emp_no))
+
+            # Candidates for matching existing daily attendance log
+            candidates = [str(emp_no)]
+            if log_emp_no not in candidates:
+                candidates.append(log_emp_no)
+            if str(emp_no).isdigit():
+                stripped = str(emp_no).lstrip("0") or "0"
+                if stripped not in candidates:
+                    candidates.append(stripped)
 
             # 1. Update or create Biometric Attendance Log
             bal = frappe.get_all(
                 "Biometric Attendance Log",
-                filters={"employee_no": str(emp_no), "event_date": event_datetime.date()},
+                filters={"employee_no": ["in", candidates], "event_date": event_datetime.date()},
                 limit_page_length=1,
             )
 
@@ -104,7 +115,7 @@ def hikvision_event_receiver():
                 doc = frappe.get_doc("Biometric Attendance Log", bal[0].name)
             else:
                 doc = frappe.new_doc("Biometric Attendance Log")
-                doc.employee_no = str(emp_no)
+                doc.employee_no = log_emp_no
                 doc.event_date = event_datetime.date()
 
             if emp_name:
@@ -245,22 +256,8 @@ def verify_card_access(door=None, card_id=None):
     if not door_doc.enabled:
         return {"authorized": False, "message": "Door disabled"}
 
-    # Lookup employee by attendance_device_id or custom card field
-    emp = frappe.db.get_value(
-        "Employee",
-        {"attendance_device_id": str(tag_id)},
-        ["name", "employee_name", "status"],
-        as_dict=True
-    )
-
-    if not emp:
-        # Also check card field if exists
-        emp = frappe.db.get_value(
-            "Employee",
-            {"name": str(tag_id)},
-            ["name", "employee_name", "status"],
-            as_dict=True
-        )
+    # Smart lookup employee by attendance_device_id, card RFID, or employee naming series
+    emp = find_employee(tag_id)
 
     # Check authorization against door permissions
     is_authorized = False

@@ -44,7 +44,7 @@ class BiometricDevice(Document):
             response = requests.get(
                 url,
                 auth=HTTPDigestAuth(self.username, password),
-                timeout=10,
+                timeout=2,
                 verify=False
             )
             if response.status_code == 200:
@@ -57,9 +57,10 @@ class BiometricDevice(Document):
                 self.status = "Online"
             else:
                 self.status = "Offline"
-        except Exception as e:
+        except Exception:
+            # Device might be behind a remote NAT router or offline.
+            # Never block saving the record.
             self.status = "Offline"
-            frappe.log_error(f"Device info fetch failed for {self.name}: {str(e)}", "Biometric Device Info")
 
 
 @frappe.whitelist()
