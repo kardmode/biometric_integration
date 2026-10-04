@@ -107,17 +107,15 @@ def hikvision_event_receiver():
 
         # 1. Check form / multipart data
         if hasattr(frappe.request, "form") and frappe.request.form:
-            for key in ("event_log", "AcsEvent", "EventNotificationAlert"):
-                if key in frappe.request.form:
-                    val = frappe.request.form[key]
-                    try:
-                        events_data = json.loads(val)
+            for key, val in frappe.request.form.items():
+                try:
+                    events_data = json.loads(val)
+                    break
+                except Exception:
+                    xml_ev = _parse_xml_hikvision_event(val)
+                    if xml_ev:
+                        events_data = [xml_ev]
                         break
-                    except Exception:
-                        xml_ev = _parse_xml_hikvision_event(val)
-                        if xml_ev:
-                            events_data = [xml_ev]
-                            break
 
         # 2. Check uploaded multipart files (Hikvision sends event json/xml as part 1)
         if not events_data and hasattr(frappe.request, "files") and frappe.request.files:
@@ -152,7 +150,19 @@ def hikvision_event_receiver():
             except Exception:
                 pass
 
-        # Temporary Inbound Debug Logging for testing
+        # Silently acknowledge idle device heartbeats / polling pings without creating error logs
+        if isinstance(events_data, dict):
+            ace = events_data.get("AccessControllerEvent", {}) if isinstance(events_data.get("AccessControllerEvent"), dict) else events_data
+            # majorEventType 2 or subEventType 1024 represents idle device status ping
+            if ace.get("majorEventType") in (1, 2) or ace.get("subEventType") in (1024, 0):
+                return {
+                    "statusCode": 1,
+                    "statusString": "OK",
+                    "subStatusCode": "ok",
+                    "message": "Heartbeat acknowledged"
+                }
+
+        # Inbound Debug Logging for real events
         try:
             debug_info = (
                 f"Content-Type: {frappe.request.headers.get('Content-Type')}\n"
