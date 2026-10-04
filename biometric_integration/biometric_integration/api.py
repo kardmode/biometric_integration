@@ -8,11 +8,54 @@ from frappe import _
 from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin, find_employee
 
 
+def _parse_xml_hikvision_event(xml_text):
+    """Parses Hikvision XML event alert payload (EventNotificationAlert / AcsEvent)."""
+    if not xml_text or not isinstance(xml_text, str) or "<" not in xml_text:
+        return None
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_text)
+        for elem in root.iter():
+            if '}' in elem.tag:
+                elem.tag = elem.tag.split('}', 1)[1]
+
+        emp_no = None
+        for tag in ("employeeNoString", "employeeNo", "cardNo"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                emp_no = node.text.strip()
+                break
+
+        time_str = None
+        for tag in ("time", "dateTime"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                time_str = node.text.strip()
+                break
+
+        dev_name = None
+        for tag in ("deviceName", "devName", "devSerial", "macAddress"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                dev_name = node.text.strip()
+                break
+
+        if emp_no and time_str:
+            return {
+                "employeeNoString": emp_no,
+                "time": time_str,
+                "devName": dev_name or "Hikvision Terminal"
+            }
+    except Exception:
+        pass
+    return None
+
+
 @frappe.whitelist(allow_guest=True)
 def hikvision_event_receiver():
     """
     Public webhook endpoint to receive real-time Hikvision event pushes (HTTP Listening / Alarm Host).
-    Accepts JSON or multipart/form-data payloads from Hikvision MinMoe face terminals.
+    Accepts JSON, XML, or multipart/form-data payloads from Hikvision MinMoe face terminals.
     """
     try:
         try:
@@ -31,30 +74,63 @@ def hikvision_event_receiver():
             frappe.local.response["http_status_code"] = 401
             return {"status": "error", "message": "Invalid or missing webhook token."}
 
-        # Parse payload
+        # Parse payload safely without triggering Werkzeug 415 on non-application/json content types
         events_data = None
-        content_type = frappe.request.headers.get("Content-Type", "")
-
-        if "multipart/form-data" in content_type:
-            # Check form parts
-            if "event_log" in frappe.request.form:
-                try:
-                    events_data = json.loads(frappe.request.form["event_log"])
-                except Exception:
-                    pass
-            elif "AcsEvent" in frappe.request.form:
-                try:
-                    events_data = json.loads(frappe.request.form["AcsEvent"])
-                except Exception:
-                    pass
-        elif "application/json" in content_type or frappe.request.data:
+        raw_text = None
+        try:
+            raw_text = frappe.request.get_data(as_text=True)
+        except Exception:
             try:
-                events_data = json.loads(frappe.request.data)
+                raw_text = frappe.request.data.decode("utf-8", errors="ignore") if frappe.request.data else ""
+            except Exception:
+                raw_text = ""
+
+        # 1. Check form / multipart data
+        if hasattr(frappe.request, "form") and frappe.request.form:
+            for key in ("event_log", "AcsEvent", "EventNotificationAlert"):
+                if key in frappe.request.form:
+                    val = frappe.request.form[key]
+                    try:
+                        events_data = json.loads(val)
+                        break
+                    except Exception:
+                        xml_ev = _parse_xml_hikvision_event(val)
+                        if xml_ev:
+                            events_data = [xml_ev]
+                            break
+
+        # 2. Check uploaded multipart files (Hikvision sends event json/xml as part 1)
+        if not events_data and hasattr(frappe.request, "files") and frappe.request.files:
+            for fname, fstorage in frappe.request.files.items():
+                try:
+                    fcontent = fstorage.read().decode("utf-8", errors="ignore")
+                    fstorage.seek(0)
+                    try:
+                        events_data = json.loads(fcontent)
+                        break
+                    except Exception:
+                        xml_ev = _parse_xml_hikvision_event(fcontent)
+                        if xml_ev:
+                            events_data = [xml_ev]
+                            break
+                except Exception:
+                    pass
+
+        # 3. Check raw body as JSON or XML
+        if not events_data and raw_text:
+            try:
+                events_data = json.loads(raw_text)
+            except Exception:
+                xml_ev = _parse_xml_hikvision_event(raw_text)
+                if xml_ev:
+                    events_data = [xml_ev]
+
+        # 4. Silent JSON getter fallback (never raises 415)
+        if not events_data and hasattr(frappe.request, "get_json"):
+            try:
+                events_data = frappe.request.get_json(silent=True)
             except Exception:
                 pass
-
-        if not events_data and hasattr(frappe.request, "json") and frappe.request.json:
-            events_data = frappe.request.json
 
         if not events_data:
             frappe.local.response["http_status_code"] = 400
@@ -80,7 +156,7 @@ def hikvision_event_receiver():
 
             emp_no = ev.get("employeeNoString") or ev.get("employeeNo") or ev.get("cardNo")
             event_timestamp = ev.get("time") or ev.get("dateTime")
-            dev_name = ev.get("devName") or ev.get("devSerial") or ev.get("deviceName") or "Hikvision Terminal"
+            dev_name = frappe.request.args.get("device") or ev.get("devName") or ev.get("devSerial") or ev.get("deviceName") or "Hikvision Terminal"
 
             if not emp_no or not event_timestamp:
                 continue
