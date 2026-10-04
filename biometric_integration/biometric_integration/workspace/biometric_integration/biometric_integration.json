@@ -55,7 +55,7 @@
    "color": "Grey",
    "doc_view": "List",
    "label": "Leave Log",
-   "link_to": "Attendance Leave Log",
+   "link_to": "Biometric Leave Log",
    "stats_filter": "[]",
    "type": "DocType"
   },
