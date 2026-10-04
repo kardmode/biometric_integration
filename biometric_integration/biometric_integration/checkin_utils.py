@@ -131,7 +131,16 @@ def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=N
             """, (emp.name, min_time, max_time), as_dict=True)
 
             if existing:
-                # Duplicate punch within debounce window - return existing without creating junk
+                # Duplicate punch within debounce window - log and return existing
+                frappe.log_error(
+                    title="Biometric Checkin Debounced",
+                    message=(
+                        f"Skipped duplicate punch for {emp.name} ({emp.get('employee_name') or ''}).\n"
+                        f"Incoming punch: {punch_time_str}\n"
+                        f"Existing recent checkin: {existing[0].name} at {existing[0].time}\n"
+                        f"Cooldown window: {cooldown} minutes."
+                    )
+                )
                 return existing[0].name
         else:
             # Exact second check if cooldown is 0
@@ -152,6 +161,17 @@ def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=N
 
         checkin.flags.ignore_permissions = True
         checkin.insert(ignore_permissions=True)
+
+        frappe.log_error(
+            title="Biometric Checkin Added",
+            message=(
+                f"Successfully recorded new checkin:\n"
+                f"Checkin ID: {checkin.name}\n"
+                f"Employee: {emp.name} ({emp.get('employee_name') or ''})\n"
+                f"Time: {punch_time_str}\n"
+                f"Device: {device_id or 'Unknown'}"
+            )
+        )
         return checkin.name
 
     except Exception as e:
