@@ -63,38 +63,20 @@ def execute(filters=None):
         for s in shifts:
             shift_map[s.employee] = s
 
-    # Fetch all Biometric Leave Log entries for selected date
-    leave_logs = frappe.db.sql("""
-        SELECT employee_no, leave_from, leave_to, full_day
-        FROM `tabBiometric Leave Log`
-        WHERE date = %(selected_date)s
-    """, {"selected_date": selected_date}, as_dict=True)
-
-    # Build a dict: employee_no -> { "leave_from": seconds or None, "leave_to": seconds or None, "full_day": 0/1 }
-    # One employee may have multiple records (e.g. late arrival + early leave)
-    def parse_time_to_seconds(val):
-        if val is None:
-            return None
-        if hasattr(val, 'total_seconds'):
-            return val.total_seconds()
-        # string like "19:40:00" or "7:40:00"
-        try:
-            parts = str(val).split(":")
-            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-        except Exception:
-            return None
-
+    # Fetch approved standard Leave Applications for selected date
     leave_log_map = {}
-    for log in leave_logs:
-        emp_id = str(log.employee_no)
-        if emp_id not in leave_log_map:
-            leave_log_map[emp_id] = {"leave_from": None, "leave_to": None, "full_day": 0}
-        if log.full_day:
-            leave_log_map[emp_id]["full_day"] = 1
-        if log.leave_from:
-            leave_log_map[emp_id]["leave_from"] = parse_time_to_seconds(log.leave_from)
-        if log.leave_to:
-            leave_log_map[emp_id]["leave_to"] = parse_time_to_seconds(log.leave_to)
+    if frappe.db.table_exists("Leave Application"):
+        leave_apps = frappe.db.sql("""
+            SELECT e.attendance_device_id, la.half_day
+            FROM `tabLeave Application` la
+            JOIN `tabEmployee` e ON e.name = la.employee
+            WHERE la.status = 'Approved'
+              AND %(selected_date)s BETWEEN la.from_date AND la.to_date
+        """, {"selected_date": selected_date}, as_dict=True)
+        for la in leave_apps:
+            emp_id = str(la.attendance_device_id or "")
+            if emp_id:
+                leave_log_map[emp_id] = {"leave_from": None, "leave_to": None, "full_day": 0 if la.half_day else 1}
     
     def natural_sort_key(emp):
         try:

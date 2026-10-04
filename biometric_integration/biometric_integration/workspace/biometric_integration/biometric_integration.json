@@ -54,8 +54,8 @@
   {
    "color": "Grey",
    "doc_view": "List",
-   "label": "Leave Log",
-   "link_to": "Biometric Leave Log",
+   "label": "Leave Applications",
+   "link_to": "Leave Application",
    "stats_filter": "[]",
    "type": "DocType"
   },
