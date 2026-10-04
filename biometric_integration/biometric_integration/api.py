@@ -223,63 +223,16 @@ def hikvision_event_receiver():
             if not event_datetime:
                 continue
 
-            # Smart employee lookup (supports leading zero normalization & custom naming series)
-            emp = find_employee(emp_no)
-            emp_name = emp.employee_name if emp else ""
-            log_emp_no = (emp.attendance_device_id if emp and emp.get("attendance_device_id") else str(emp_no))
-
-            # Candidates for matching existing daily attendance log
-            candidates = [str(emp_no)]
-            if log_emp_no not in candidates:
-                candidates.append(log_emp_no)
-            if str(emp_no).isdigit():
-                stripped = str(emp_no).lstrip("0") or "0"
-                if stripped not in candidates:
-                    candidates.append(stripped)
-
-            # 1. Update or create Biometric Attendance Log
-            bal = frappe.get_all(
-                "Biometric Attendance Log",
-                filters={"employee_no": ["in", candidates], "event_date": event_datetime.date()},
-                limit_page_length=1,
+            # Create standard HRMS Employee Checkin with intelligent 5-minute debounce
+            checkin_id = create_employee_checkin(
+                emp_no,
+                event_datetime,
+                log_type=None,
+                device_id=dev_name,
+                cooldown_minutes=5
             )
-
-            existing_punch = False
-            if bal:
-                doc = frappe.get_doc("Biometric Attendance Log", bal[0].name)
-                existing_punch = frappe.db.sql(
-                    """
-                    SELECT COUNT(*)
-                    FROM `tabBiometric Attendance Punch Table`
-                    WHERE parent = %(parent)s
-                    AND punch_time = %(punch_time)s
-                    """,
-                    {"parent": doc.name, "punch_time": event_datetime.time()},
-                )[0][0] > 0
-            else:
-                doc = frappe.new_doc("Biometric Attendance Log")
-                doc.employee_no = log_emp_no
-                doc.event_date = event_datetime.date()
-
-            if emp_name:
-                doc.employee_name = emp_name
-
-            if not existing_punch:
-                doc.append(
-                    "punch_table",
-                    {
-                        "punch_time": event_datetime.time(),
-                        "punch_type": "Auto",
-                    },
-                )
-                if doc.is_new():
-                    doc.insert(ignore_permissions=True)
-                else:
-                    doc.save(ignore_permissions=True)
-
-            # 2. Standard HRMS Employee Checkin creation
-            create_employee_checkin(emp_no, event_datetime, log_type=None, device_id=dev_name)
-            processed += 1
+            if checkin_id:
+                processed += 1
 
         frappe.db.commit()
 

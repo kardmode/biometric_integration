@@ -79,10 +79,11 @@ def find_employee(employee_id_or_device_id):
     return None
 
 
-def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=None, device_id=None):
+def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=None, device_id=None, cooldown_minutes=5):
     """
     Creates an ERPNext/HRMS standard Employee Checkin record.
     Matches employee by attendance_device_id or employee name with smart zero-normalization.
+    Includes intelligent debounce: ignores duplicate punches within cooldown_minutes (default: 5 min).
     """
     if not frappe.db.table_exists("Employee Checkin"):
         return None
@@ -101,22 +102,45 @@ def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=N
         if not emp:
             return None
 
-        # Ensure punch_datetime is a datetime object or valid string
-        if isinstance(punch_datetime, str):
-            punch_time_str = punch_datetime[:19]
-        elif isinstance(punch_datetime, datetime):
-            punch_time_str = punch_datetime.strftime("%Y-%m-%d %H:%M:%S")
-        else:
+        # Parse punch_datetime into datetime object
+        dt = frappe.utils.get_datetime(punch_datetime)
+        if not dt:
             return None
+        punch_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Check for existing Employee Checkin
-        existing = frappe.db.exists(
-            "Employee Checkin",
-            {"employee": emp.name, "time": punch_time_str}
-        )
+        # Allow settings to override cooldown_minutes if configured
+        cooldown = cooldown_minutes
+        if settings and hasattr(settings, "punch_cooldown_minutes") and settings.punch_cooldown_minutes is not None:
+            try:
+                cooldown = int(settings.punch_cooldown_minutes)
+            except Exception:
+                cooldown = cooldown_minutes
 
-        if existing:
-            return existing
+        # Debounce: check for any checkin for this employee within +/- cooldown minutes
+        if cooldown > 0:
+            min_time = frappe.utils.add_to_date(dt, minutes=-cooldown, as_string=True)
+            max_time = frappe.utils.add_to_date(dt, minutes=cooldown, as_string=True)
+
+            existing = frappe.db.sql("""
+                SELECT name, time
+                FROM `tabEmployee Checkin`
+                WHERE employee = %s
+                  AND time BETWEEN %s AND %s
+                ORDER BY time DESC
+                LIMIT 1
+            """, (emp.name, min_time, max_time), as_dict=True)
+
+            if existing:
+                # Duplicate punch within debounce window - return existing without creating junk
+                return existing[0].name
+        else:
+            # Exact second check if cooldown is 0
+            existing = frappe.db.exists(
+                "Employee Checkin",
+                {"employee": emp.name, "time": punch_time_str}
+            )
+            if existing:
+                return existing
 
         checkin = frappe.new_doc("Employee Checkin")
         checkin.employee = emp.name
