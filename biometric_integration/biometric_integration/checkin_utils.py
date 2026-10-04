@@ -88,8 +88,11 @@ def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=N
         return None
 
     try:
-        # Check if settings allow syncing to Employee Checkin
-        settings = frappe.get_single("Biometric Integration Settings") if frappe.db.table_exists("Biometric Integration Settings") else None
+        try:
+            settings = frappe.get_cached_doc("Biometric Integration Settings")
+        except Exception:
+            settings = None
+
         if settings and hasattr(settings, "sync_to_employee_checkin") and not settings.sync_to_employee_checkin:
             return None
 

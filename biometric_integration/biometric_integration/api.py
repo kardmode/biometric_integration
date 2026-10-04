@@ -15,7 +15,11 @@ def hikvision_event_receiver():
     Accepts JSON or multipart/form-data payloads from Hikvision MinMoe face terminals.
     """
     try:
-        settings = frappe.get_single("Biometric Integration Settings") if frappe.db.table_exists("Biometric Integration Settings") else None
+        try:
+            settings = frappe.get_cached_doc("Biometric Integration Settings")
+        except Exception:
+            settings = None
+
         if not settings or not getattr(settings, "enable_webhook_receiver", 1):
             frappe.local.response["http_status_code"] = 403
             return {"status": "error", "message": "Webhook receiver is disabled."}
