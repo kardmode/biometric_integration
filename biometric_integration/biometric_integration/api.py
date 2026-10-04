@@ -90,21 +90,6 @@ def hikvision_event_receiver():
                 as_dict=True
             )
 
-        # Fallback for existing terminal token during migration
-        if not matched_device and frappe.db.table_exists("Biometric Integration Settings"):
-            try:
-                settings = frappe.get_cached_doc("Biometric Integration Settings")
-                expected_token = getattr(settings, "webhook_secret_key", None)
-                if expected_token and token == expected_token:
-                    matched_device = frappe._dict({
-                        "name": getattr(settings, "device_name", None) or "Hikvision Terminal",
-                        "device_name": getattr(settings, "device_name", None) or "Hikvision Terminal",
-                        "device_direction": "Auto",
-                        "punch_cooldown_minutes": 5
-                    })
-            except Exception:
-                pass
-
         if not matched_device:
             frappe.local.response["http_status_code"] = 401
             return {"status": "error", "message": "Invalid or missing webhook token."}
