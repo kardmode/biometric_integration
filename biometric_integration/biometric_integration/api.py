@@ -156,9 +156,15 @@ def hikvision_event_receiver():
         }
 
     except Exception as e:
-        frappe.log_error(f"Hikvision webhook processing failed: {str(e)}", "Biometric Webhook Error")
+        frappe.log_error(title="Biometric Webhook Error", message=f"Hikvision webhook processing failed: {str(e)}")
         frappe.local.response["http_status_code"] = 500
         return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def push():
+    """Short endpoint alias for hardware terminals with character limits."""
+    return hikvision_event_receiver()
 
 
 # -------------------------------------------------------------------------
