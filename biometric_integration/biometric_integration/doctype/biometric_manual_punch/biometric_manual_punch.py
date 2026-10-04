@@ -1,154 +1,50 @@
 import frappe
-from datetime import datetime, timedelta
+from datetime import datetime
 from frappe.model.document import Document
 from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin
 
-class BiometricManualPunch(Document):
-    def before_save(self):
-        pass  # add pre-save validation logic here if needed
 
+class BiometricManualPunch(Document):
     def after_insert(self):
         add_manual_punch(self.employee, self.punch_date, self.punch_time)
 
     def on_update(self):
         add_manual_punch(self.employee, self.punch_date, self.punch_time)
 
+
 @frappe.whitelist()
 def add_manual_punch(employee, punch_date, punch_time):
     try:
-        employee_name = frappe.db.get_value('Employee', employee, 'employee_name')
-        attendance_device_id = frappe.db.get_value('Employee', employee, 'attendance_device_id')
-        
-        if not attendance_device_id:
-            return {'status': 'error', 'message': f"Attendance Device ID not found for {employee_name}"}
+        employee_name = frappe.db.get_value("Employee", employee, "employee_name")
+        punch_time = str(punch_time).split(".")[0]
+        punch_datetime = datetime.strptime(f"{punch_date} {punch_time}", "%Y-%m-%d %H:%M:%S")
 
-        # Remove fractional seconds, if any, from punch_time
-        punch_time = punch_time.split('.')[0]
-        punch_datetime = datetime.strptime(f"{punch_date} {punch_time}", '%Y-%m-%d %H:%M:%S')
-
-        query = """
-            SELECT name FROM `tabBiometric Attendance Log`
-            WHERE employee_no = %s AND event_date = %s
-        """
-        attendance_log = frappe.db.sql(query, (attendance_device_id, punch_datetime.date()), as_dict=True)
-
-        if attendance_log:
-            doc = frappe.get_doc('Biometric Attendance Log', attendance_log[0].name)
-        else:
-            doc = frappe.get_doc({'doctype': 'Biometric Attendance Log', 'employee_no': attendance_device_id, 'event_date': punch_datetime.date()})
-
-        punches = []
-        for punch in doc.get('punch_table', []):
-            punch_time_value = punch.punch_time
-            if isinstance(punch_time_value, str):
-                punch_time_value = datetime.strptime(punch_time_value, '%H:%M:%S').time()
-            elif isinstance(punch_time_value, timedelta):
-                punch_time_value = (datetime.min + punch_time_value).time()
-            punches.append({'punch_time': punch_time_value, 'punch_type': punch.punch_type})
-
-        # Check if the punch time already exists (ignoring fractional seconds)
-        if any(p['punch_time'] == punch_datetime.time() for p in punches):
-            return {'status': 'error', 'message': f"Manual punch for {employee_name} on {punch_date} at {punch_time} already exists. Document will not be saved."}
-        
-        punches.append({'punch_time': punch_datetime.time(), 'punch_type': 'Manual'})
-        punches.sort(key=lambda x: x['punch_time'])
-
-        doc.set('punch_table', [])
-        for punch in punches:
-            doc.append('punch_table', punch)
-
-        doc.save(ignore_permissions=True)
-        create_employee_checkin(employee, punch_datetime, log_type=None, device_id="Manual")
+        create_employee_checkin(employee, punch_datetime, log_type=None, device_id="Manual", cooldown_minutes=0)
         frappe.db.commit()
 
-        return {'status': 'success', 'message': f"Manual punch for {employee_name} on {punch_date} at {punch_time} added successfully."}
+        return {"status": "success", "message": f"Manual punch for {employee_name} on {punch_date} at {punch_time} added successfully."}
 
-    except frappe.ValidationError as e:
-        return {'status': 'error', 'message': str(e)}
     except Exception as e:
-        return {'status': 'error', 'message': f"Error adding manual punch: {str(e)}"}
+        return {"status": "error", "message": f"Error adding manual punch: {str(e)}"}
 
-@frappe.whitelist()
-def edit_button_delete_punch(doc_name, new_punch_date, new_punch_time):
-    try:
-        # Fetch the Biometric Manual Punch document
-        doc = frappe.get_doc('Biometric Manual Punch', doc_name)
-        employee = doc.employee
-        punch_date = doc.punch_date
-        punch_time = doc.punch_time
-
-        # Fetch the attendance_device_id from the Employee doctype
-        attendance_device_id = frappe.db.get_value('Employee', employee, 'attendance_device_id')
-
-        # Check if an Attendance Log exists for the given employee and date
-        attendance_log = frappe.db.sql("""
-            SELECT name 
-            FROM `tabBiometric Attendance Log` 
-            WHERE employee_no = %s AND event_date = %s
-        """, (attendance_device_id, punch_date), as_dict=True)
-
-        if not attendance_log:
-            raise Exception("No attendance log found for the given date and employee.")
-        
-        attendance_log_name = attendance_log[0].name
-
-        # Delete the punch from the Biometric Attendance Punch Table
-        frappe.db.sql("""
-            DELETE FROM `tabBiometric Attendance Punch Table` 
-            WHERE parent = %s AND punch_time = %s AND punch_type = 'Manual'
-        """, (attendance_log_name, punch_time))
-
-        # Update the punch date and time in the Biometric Manual Punch table
-        frappe.db.sql("""
-            UPDATE `tabBiometric Manual Punch`
-            SET punch_date = %s, punch_time = %s
-            WHERE name = %s
-        """, (new_punch_date, new_punch_time, doc_name))
-
-        add_manual_punch(employee, new_punch_date, new_punch_time)
-
-        frappe.db.commit()
-
-        return True
-    except Exception as e:
-        frappe.log_error(f"Error editing manual punch: {str(e)}")
-        return False
 
 @frappe.whitelist()
 def delete_manual_punch(doc, method=None):
     try:
         employee = doc.get("employee")
         punch_date = doc.get("punch_date")
-        punch_time = doc.get("punch_time")
+        punch_time = str(doc.get("punch_time")).split(".")[0]
+        punch_datetime_str = f"{punch_date} {punch_time}"
 
-        # Fetch the attendance_device_id from the Employee doctype
-        employee_name = frappe.db.get_value('Employee', employee, 'employee_name')
-        attendance_device_id = frappe.db.get_value('Employee', employee, 'attendance_device_id')
-        if not attendance_device_id:
-            frappe.throw(f"Attendance Device ID not found for employee {employee}")
-
-        # Check if an Attendance Log exists for the given employee and date
-        attendance_log = frappe.db.sql("""
-            SELECT name 
-            FROM `tabBiometric Attendance Log` 
-            WHERE employee_no = %s AND event_date = %s
-        """, (attendance_device_id, punch_date), as_dict=True)
-
-        if not attendance_log:
-            frappe.throw(f"No attendance log found for employee {employee_name} on {punch_date}")
-
-        attendance_log_name = attendance_log[0].name
-
-        # Delete the punch from the punch_table
-        frappe.db.sql("""
-            DELETE FROM `tabBiometric Attendance Punch Table` 
-            WHERE parent = %s AND punch_time = %s AND punch_type = 'Manual'
-        """, (attendance_log_name, punch_time))
+        # Delete corresponding Employee Checkin if exists
+        checkins = frappe.get_all(
+            "Employee Checkin",
+            filters={"employee": employee, "time": punch_datetime_str, "device_id": "Manual"},
+            pluck="name"
+        )
+        for cname in checkins:
+            frappe.delete_doc("Employee Checkin", cname, ignore_permissions=True)
 
         frappe.db.commit()
-
-        frappe.msgprint(f"Manual punch for employee {employee_name} on {punch_date} at {punch_time} deleted successfully.")
-        return
-
     except Exception as e:
-        frappe.throw(f"Error deleting manual punch: {str(e)}")
+        frappe.log_error(title="Delete Manual Punch Error", message=str(e))

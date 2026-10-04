@@ -15,7 +15,7 @@
  "name": "Biometric Manual Punch Report",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Biometric Attendance Log",
+ "ref_doctype": "Biometric Manual Punch",
  "report_name": "Biometric Manual Punch Report",
  "report_type": "Script Report",
  "roles": [

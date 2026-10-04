@@ -39,7 +39,7 @@
    "color": "Grey",
    "doc_view": "List",
    "label": "Attendance Log",
-   "link_to": "Biometric Attendance Log",
+   "link_to": "Employee Checkin",
    "stats_filter": "[]",
    "type": "DocType"
   },
@@ -48,7 +48,7 @@
    "doc_view": "List",
    "label": "Daily Report",
    "link_to": "Biometric Daily Report",
-   "report_ref_doctype": "Biometric Attendance Log",
+   "report_ref_doctype": "Employee Checkin",
    "type": "Report"
   },
   {
@@ -64,7 +64,7 @@
    "doc_view": "List",
    "label": "Monthly Report",
    "link_to": "Biometric Monthly Report",
-   "report_ref_doctype": "Biometric Attendance Log",
+   "report_ref_doctype": "Employee Checkin",
    "type": "Report"
   },
   {

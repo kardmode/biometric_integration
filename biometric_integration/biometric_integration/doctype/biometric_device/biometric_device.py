@@ -218,47 +218,16 @@ def sync_device_attendance(device_name, from_date=None, from_time=None, to_date=
                     emp_name = frappe.db.get_value("Employee", {"attendance_device_id": str(emp_no)}, "employee_name") or ""
                     name_cache[str(emp_no)] = emp_name
 
-                # Log lookup or creation
-                bal = frappe.get_all(
-                    "Biometric Attendance Log",
-                    filters={"employee_no": emp_no, "event_date": event_datetime.date()},
-                    limit_page_length=1,
+                log_direction = device.device_direction if device.device_direction in ("IN", "OUT") else None
+                checkin_id = create_employee_checkin(
+                    emp_no,
+                    event_datetime,
+                    log_type=log_direction,
+                    device_id=device.name,
+                    cooldown_minutes=5
                 )
-
-                if bal:
-                    doc = frappe.get_doc("Biometric Attendance Log", bal[0].name)
-                else:
-                    doc = frappe.new_doc("Biometric Attendance Log")
-                    doc.employee_no = emp_no
-                    doc.event_date = event_datetime.date()
-
-                if emp_name:
-                    doc.employee_name = emp_name
-
-                existing_punch = frappe.db.sql(
-                    """
-                    SELECT COUNT(*)
-                    FROM `tabBiometric Attendance Punch Table`
-                    WHERE parent = %(parent)s
-                    AND punch_time = %(punch_time)s
-                    """,
-                    {"parent": doc.name, "punch_time": event_datetime.time()},
-                )[0][0] > 0
-
-                if not existing_punch:
-                    doc.append(
-                        "punch_table",
-                        {
-                            "punch_time": event_datetime.time(),
-                            "punch_type": "Auto",
-                        },
-                    )
-                    doc.save(ignore_permissions=True)
+                if checkin_id:
                     count += 1
-                    log_direction = device.device_direction if device.device_direction in ("IN", "OUT") else None
-                    create_employee_checkin(emp_no, event_datetime, log_type=log_direction, device_id=device.name)
-                else:
-                    skipped += 1
 
             position += len(events)
             if position % 200 == 0:

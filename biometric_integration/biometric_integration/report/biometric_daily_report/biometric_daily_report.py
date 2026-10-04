@@ -41,10 +41,9 @@ def execute(filters=None):
             e.employee_name,
             e.attendance_device_id,
             e.employment_type
-        FROM `tabBiometric Attendance Log` bal
-        JOIN `tabBiometric Attendance Punch Table` punch ON punch.parent = bal.name
-        JOIN `tabEmployee` e ON (e.attendance_device_id = bal.employee_no OR (e.attendance_device_id REGEXP "^[0-9]+$" AND bal.employee_no REGEXP "^[0-9]+$" AND TRIM(LEADING "0" FROM e.attendance_device_id) = TRIM(LEADING "0" FROM bal.employee_no)))
-        WHERE bal.event_date = %(selected_date)s
+        FROM `tabEmployee Checkin` ec
+        JOIN `tabEmployee` e ON e.name = ec.employee
+        WHERE DATE(ec.time) = %(selected_date)s
     """, {"selected_date": selected_date}, as_dict=True)
     
     # Create a set of present employee IDs for faster lookup
@@ -235,35 +234,27 @@ def execute(filters=None):
     
     # First pass: determine max_punches
     for employee in present_employees:
-        attendance_logs = frappe.db.sql("""
-            SELECT al.name, al.event_date
-            FROM `tabBiometric Attendance Log` al
-            WHERE (al.employee_no = %(employee_no)s OR (al.employee_no REGEXP "^[0-9]+$" AND %(employee_no)s REGEXP "^[0-9]+$" AND TRIM(LEADING "0" FROM al.employee_no) = TRIM(LEADING "0" FROM %(employee_no)s))) AND al.event_date = %(selected_date)s
-            ORDER BY al.event_date
-        """, {"employee_no": employee.attendance_device_id, "selected_date": selected_date}, as_dict=True)
+        punches = frappe.db.sql("""
+            SELECT TIME(time) as punch_time, 'Auto' as punch_type
+            FROM `tabEmployee Checkin`
+            WHERE employee = %(emp)s AND DATE(time) = %(selected_date)s
+            ORDER BY time
+        """, {"emp": employee.employee, "selected_date": selected_date}, as_dict=True)
         
-        for log in attendance_logs:
-            punches = frappe.db.sql("""
-                SELECT at.punch_time, at.punch_type
-                FROM `tabBiometric Attendance Punch Table` at
-                WHERE at.parent = %(log_name)s
-                ORDER BY at.punch_time
-            """, {"log_name": log.name}, as_dict=True)
-            
-            if not punches:
-                continue
-            
-            # Check for <-- Check punch condition
-            if len(punches) == 2:
-                first_punch = punches[0]["punch_time"]
-                second_punch = punches[1]["punch_time"]
-                first_punch_valid = is_time_between(first_punch, 7, 10)
-                second_punch_valid = is_time_between(second_punch, 19, 22)
-                if first_punch_valid and second_punch_valid:
-                    punches.append({"punch_time": None, "punch_type": "<-- Check"})
-            
-            max_punches = max(max_punches, len(punches))
-    
+        if not punches:
+            continue
+        
+        # Check for <-- Check punch condition
+        if len(punches) == 2:
+            first_punch = punches[0]["punch_time"]
+            second_punch = punches[1]["punch_time"]
+            first_punch_valid = is_time_between(first_punch, 7, 10)
+            second_punch_valid = is_time_between(second_punch, 19, 22)
+            if first_punch_valid and second_punch_valid:
+                punches.append({"punch_time": None, "punch_type": "<-- Check"})
+        
+        max_punches = max(max_punches, len(punches))
+
     # Add punch columns FIRST - before processing data
     punch_column_width = 100
     for i in range(1, max_punches + 1):
@@ -286,23 +277,15 @@ def execute(filters=None):
 
     # Second pass: Process data with correct column structure
     for employee in present_employees:
-        attendance_logs = frappe.db.sql("""
-            SELECT al.name, al.event_date
-            FROM `tabBiometric Attendance Log` al
-            WHERE (al.employee_no = %(employee_no)s OR (al.employee_no REGEXP "^[0-9]+$" AND %(employee_no)s REGEXP "^[0-9]+$" AND TRIM(LEADING "0" FROM al.employee_no) = TRIM(LEADING "0" FROM %(employee_no)s))) AND al.event_date = %(selected_date)s
-            ORDER BY al.event_date
-        """, {"employee_no": employee.attendance_device_id, "selected_date": selected_date}, as_dict=True)
+        punches = frappe.db.sql("""
+            SELECT TIME(time) as punch_time, 'Auto' as punch_type
+            FROM `tabEmployee Checkin`
+            WHERE employee = %(emp)s AND DATE(time) = %(selected_date)s
+            ORDER BY time
+        """, {"emp": employee.employee, "selected_date": selected_date}, as_dict=True)
         
-        for log in attendance_logs:
-            punches = frappe.db.sql("""
-                SELECT at.punch_time, at.punch_type
-                FROM `tabBiometric Attendance Punch Table` at
-                WHERE at.parent = %(log_name)s
-                ORDER BY at.punch_time
-            """, {"log_name": log.name}, as_dict=True)
-            
-            if not punches:
-                continue
+        if not punches:
+            continue
                 
             row_data = {}
             row_indicators = {}

@@ -433,49 +433,15 @@ def sync_attendance(from_date=None, from_time=None, to_date=None, to_time=None):
                 event_datetime = datetime.strptime(event_timestamp[:19], "%Y-%m-%dT%H:%M:%S")
                 employee_name = _get_employee_name(settings, decrypted_password, emp_no, employee_name_cache)
 
-                attendance_log = frappe.get_all(
-                    "Biometric Attendance Log",
-                    filters={"employee_no": emp_no, "event_date": event_datetime.date()},
-                    limit_page_length=1,
+                checkin_id = create_employee_checkin(
+                    emp_no,
+                    event_datetime,
+                    log_type=None,
+                    device_id=settings.device_name or settings.ip,
+                    cooldown_minutes=5
                 )
-
-                if attendance_log:
-                    doc = frappe.get_doc("Biometric Attendance Log", attendance_log[0].name)
-                else:
-                    doc = frappe.new_doc("Biometric Attendance Log")
-                    doc.employee_no = emp_no
-                    doc.event_date = event_datetime.date()
-
-                if employee_name:
-                    doc.employee_name = employee_name
-
-                existing_punch = frappe.db.sql(
-                    """
-                    SELECT COUNT(*)
-                    FROM `tabBiometric Attendance Punch Table`
-                    WHERE parent = %(parent)s
-                    AND punch_time = %(punch_time)s
-                    """,
-                    {"parent": doc.name, "punch_time": event_datetime.time()},
-                )[0][0] > 0
-
-                if not existing_punch:
-                    doc.append(
-                        "punch_table",
-                        {
-                            "punch_time": event_datetime.time(),
-                            "punch_type": "Auto",
-                        },
-                    )
-                    try:
-                        doc.save(ignore_permissions=True)
-                        count += 1
-                        create_employee_checkin(emp_no, event_datetime, log_type=None, device_id=settings.device_name or settings.ip)
-                    except Exception as e:
-                        frappe.log_error(title="Biometric Punch Insert Error", message=f"Insert failed for employee {emp_no}: {str(e)}")
-                        continue
-                else:
-                    skipped += 1
+                if checkin_id:
+                    count += 1
 
             position += len(events)
             progress_pct = min(100, int((position / total_records) * 100)) if total_records else 100
@@ -551,39 +517,7 @@ def update_all_manual_punches():
 
             punch_datetime = datetime.strptime(f"{punch_date} {punch_time}", "%Y-%m-%d %H:%M:%S")
 
-            query = """
-                SELECT name FROM `tabBiometric Attendance Log`
-                WHERE employee_no = %s AND event_date = %s
-            """
-            attendance_log = frappe.db.sql(query, (attendance_device_id, punch_date), as_dict=True)
-
-            if attendance_log:
-                doc = frappe.get_doc("Biometric Attendance Log", attendance_log[0].name)
-            else:
-                doc = frappe.get_doc({"doctype": "Biometric Attendance Log", "employee_no": attendance_device_id, "event_date": punch_date})
-
-            if employee_name:
-                doc.employee_name = employee_name
-
-            punches = []
-            for punch in doc.get("punch_table", []):
-                punch_time_value = punch.punch_time
-                if isinstance(punch_time_value, str):
-                    punch_time_value = datetime.strptime(punch_time_value, "%H:%M:%S").time()
-                elif isinstance(punch_time_value, timedelta):
-                    punch_time_value = (datetime.min + punch_time_value).time()
-                punches.append({"punch_time": punch_time_value, "punch_type": punch.punch_type})
-
-            if not any(p["punch_time"] == punch_datetime.time() for p in punches):
-                punches.append({"punch_time": punch_datetime.time(), "punch_type": "Manual"})
-                punches.sort(key=lambda x: x["punch_time"])
-
-                doc.set("punch_table", [])
-                for punch in punches:
-                    doc.append("punch_table", punch)
-
-                doc.save(ignore_permissions=True)
-                create_employee_checkin(attendance_device_id, punch_datetime, log_type=None, device_id="Manual")
+            create_employee_checkin(attendance_device_id, punch_datetime, log_type=None, device_id="Manual", cooldown_minutes=0)
 
         frappe.db.commit()
         return {"status": "success", "message": "Manual punches updated successfully for all employees."}

@@ -15,7 +15,7 @@
  "name": "Biometric Daily Report",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Biometric Attendance Log",
+ "ref_doctype": "Employee Checkin",
  "report_name": "Biometric Daily Report",
  "report_type": "Script Report",
  "roles": [
