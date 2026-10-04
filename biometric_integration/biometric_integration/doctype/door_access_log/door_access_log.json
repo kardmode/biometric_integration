@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "autoname": "format:DAL-{door}-{YYYY}{MM}{DD}-{#####}",
+ "creation": "2026-10-04 10:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "general_section",
+  "door",
+  "timestamp",
+  "status",
+  "access_method",
+  "column_break_1",
+  "employee",
+  "employee_name",
+  "card_id",
+  "details"
+ ],
+ "fields": [
+  {
+   "fieldname": "general_section",
+   "fieldtype": "Section Break",
+   "label": "Access Event Details"
+  },
+  {
+   "fieldname": "door",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Door / Gate",
+   "options": "Access Door",
+   "reqd": 1
+  },
+  {
+   "fieldname": "timestamp",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Timestamp",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Granted\nDenied\nDoor Opened\nDoor Closed\nDoor Held Open Alert\nDoor Forced Open",
+   "reqd": 1
+  },
+  {
+   "fieldname": "access_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Method",
+   "options": "Mobile Web Button\nRFID Phone Sticker\nKeyfob / Card\nNo-Touch IR Wave\nDoor Position Sensor\nManual Override\nSystem Timer"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee"
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name"
+  },
+  {
+   "fieldname": "card_id",
+   "fieldtype": "Data",
+   "label": "RFID / Sticker Card ID"
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Small Text",
+   "label": "Event Notes / Relay Response"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-04 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Door Access Log",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "share": 0,
+   "write": 0
+  },
+  {
+   "read": 1,
+   "role": "HR User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "door,employee_name,status,access_method",
+ "sort_field": "timestamp",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "door"
+}

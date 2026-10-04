@@ -1,0 +1,268 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "autoname": "format:{door_name}",
+ "creation": "2026-10-04 10:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "general_section",
+  "door_name",
+  "enabled",
+  "door_type",
+  "location",
+  "column_break_1",
+  "controller_type",
+  "ip_address",
+  "port",
+  "username",
+  "password",
+  "door_no",
+  "mqtt_topic",
+  "relay_pulse_seconds",
+  "http_auth_token",
+  "permission_section",
+  "allow_mobile_unlock",
+  "allow_all_active_employees",
+  "allowed_roles",
+  "allowed_employees",
+  "status_section",
+  "current_state",
+  "last_state_change",
+  "column_break_2",
+  "has_position_sensor",
+  "max_open_seconds",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "general_section",
+   "fieldtype": "Section Break",
+   "label": "Door & Controller Configuration"
+  },
+  {
+   "fieldname": "door_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Door / Gate Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled"
+  },
+  {
+   "default": "Maglock Door",
+   "fieldname": "door_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Door Type",
+   "options": "Maglock Door\nRoller Shutter Gate\nMotorized Barrier Gate\nTurnstile\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Location / Building"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Shelly Plus 1 (HTTP)",
+   "fieldname": "controller_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Controller Type",
+   "options": "Shelly Plus 1 (HTTP)\nShelly (MQTT)\nESP32 Controller\nHikvision ISAPI\nCustom Webhook",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:in_list(['Shelly Plus 1 (HTTP)', 'ESP32 Controller', 'Hikvision ISAPI', 'Custom Webhook'], doc.controller_type)",
+   "description": "Local IP address or hostname (e.g. 192.168.1.150)",
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Device IP / Hostname"
+  },
+  {
+   "depends_on": "eval:doc.controller_type == 'Hikvision ISAPI'",
+   "fieldname": "port",
+   "fieldtype": "Int",
+   "label": "Port (Default: 80)"
+  },
+  {
+   "depends_on": "eval:doc.controller_type == 'Hikvision ISAPI'",
+   "fieldname": "username",
+   "fieldtype": "Data",
+   "label": "Device Username (e.g. admin)"
+  },
+  {
+   "depends_on": "eval:doc.controller_type == 'Hikvision ISAPI'",
+   "fieldname": "password",
+   "fieldtype": "Password",
+   "label": "Device Password"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.controller_type == 'Hikvision ISAPI'",
+   "description": "Relay / Door number on the Hikvision terminal (usually 1)",
+   "fieldname": "door_no",
+   "fieldtype": "Int",
+   "label": "Door Channel / Index"
+  },
+  {
+   "depends_on": "eval:doc.controller_type == 'Shelly (MQTT)'",
+   "description": "Base MQTT topic (e.g. factory/door/workshop)",
+   "fieldname": "mqtt_topic",
+   "fieldtype": "Data",
+   "label": "MQTT Topic"
+  },
+  {
+   "default": "3.0",
+   "description": "Pulse duration (seconds). 3.0s for maglocks, 0.5s for roller shutter toggle pulse.",
+   "fieldname": "relay_pulse_seconds",
+   "fieldtype": "Float",
+   "label": "Relay Pulse (Seconds)",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.controller_type == 'Shelly Plus 1 (HTTP)'",
+   "description": "Optional HTTP password or token configured on the controller",
+   "fieldname": "http_auth_token",
+   "fieldtype": "Password",
+   "label": "HTTP Password / Token"
+  },
+  {
+   "fieldname": "permission_section",
+   "fieldtype": "Section Break",
+   "label": "Access Permissions & Authorization"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_mobile_unlock",
+   "fieldtype": "Check",
+   "label": "Allow Mobile Phone Unlock"
+  },
+  {
+   "default": "1",
+   "description": "If enabled, all active employees can unlock this door. If disabled, only allowed roles/employees below are granted access.",
+   "fieldname": "allow_all_active_employees",
+   "fieldtype": "Check",
+   "label": "Allow All Active Employees (e.g. Main Gate)"
+  },
+  {
+   "depends_on": "eval:doc.allow_all_active_employees == 0",
+   "fieldname": "allowed_roles",
+   "fieldtype": "Table",
+   "label": "Allowed User Roles",
+   "options": "Access Door Role"
+  },
+  {
+   "depends_on": "eval:doc.allow_all_active_employees == 0",
+   "fieldname": "allowed_employees",
+   "fieldtype": "Table",
+   "label": "Allowed Specific Employees",
+   "options": "Access Door Employee"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Position Sensor & Real-Time Status"
+  },
+  {
+   "default": "Unknown",
+   "fieldname": "current_state",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Current State",
+   "options": "Unknown\nClosed\nOpen\nHeld-Open Alert",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_state_change",
+   "fieldtype": "Datetime",
+   "label": "Last State Change",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "has_position_sensor",
+   "fieldtype": "Check",
+   "label": "Has Position Sensor (Reed Switch / Floor Contact)"
+  },
+  {
+   "default": "60",
+   "depends_on": "eval:doc.has_position_sensor == 1",
+   "description": "Trigger alert if door remains open longer than this duration (seconds)",
+   "fieldname": "max_open_seconds",
+   "fieldtype": "Int",
+   "label": "Max Open Seconds (DHO Alert)"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Installation Notes / Wiring Details"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-04 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Access Door",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "HR User"
+  },
+  {
+   "read": 1,
+   "role": "Employee"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "door_name,location,door_type,ip_address",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "door_name"
+}

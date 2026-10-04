@@ -66,6 +66,30 @@
    "link_to": "Biometric Monthly Report",
    "report_ref_doctype": "Biometric Attendance Log",
    "type": "Report"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "Access Doors",
+   "link_to": "Access Door",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Door Access Logs",
+   "link_to": "Door Access Log",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "Door Control",
+   "link_to": "door-control",
+   "stats_filter": "[]",
+   "type": "Page"
   }
  ],
  "title": "Biometric Integration",
