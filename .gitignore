@@ -6,4 +6,5 @@ tags
 node_modules
 __pycache__
 hrms/
-docs/
+hrms_server/
+docs/

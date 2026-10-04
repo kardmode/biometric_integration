@@ -140,6 +140,9 @@ add_to_apps_screen = [
 doc_events = {
     "Biometric Manual Punch": {
         "on_trash": "biometric_integration.biometric_integration.doctype.biometric_manual_punch.biometric_manual_punch.delete_manual_punch"
+    },
+    "Attendance": {
+        "before_validate": "biometric_integration.biometric_integration.attendance_hooks.before_validate_attendance"
     }
 }
 
