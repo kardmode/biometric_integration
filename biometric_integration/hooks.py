@@ -144,6 +144,9 @@ doc_events = {
     },
     "Attendance": {
         "before_validate": "biometric_integration.biometric_integration.attendance_hooks.before_validate_attendance"
+    },
+    "Salary Slip": {
+        "validate": "biometric_integration.biometric_integration.attendance_hooks.validate_salary_slip"
     }
 }
 
