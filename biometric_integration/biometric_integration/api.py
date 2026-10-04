@@ -150,11 +150,10 @@ def hikvision_event_receiver():
             except Exception:
                 pass
 
-        # Silently acknowledge idle device heartbeats / polling pings without creating error logs
+        # Silently acknowledge idle device heartbeats and system sensor events without creating error logs
         if isinstance(events_data, dict):
-            ace = events_data.get("AccessControllerEvent", {}) if isinstance(events_data.get("AccessControllerEvent"), dict) else events_data
-            # majorEventType 2 or subEventType 1024 represents idle device status ping
-            if ace.get("majorEventType") in (1, 2) or ace.get("subEventType") in (1024, 0):
+            event_type = str(events_data.get("eventType") or events_data.get("eventDescription") or "").lower()
+            if "heartbeat" in event_type:
                 return {
                     "statusCode": 1,
                     "statusString": "OK",
@@ -162,19 +161,15 @@ def hikvision_event_receiver():
                     "message": "Heartbeat acknowledged"
                 }
 
-        # Inbound Debug Logging for real events
-        try:
-            debug_info = (
-                f"Content-Type: {frappe.request.headers.get('Content-Type')}\n"
-                f"Query Params: {dict(frappe.request.args)}\n"
-                f"Form Keys: {list(frappe.request.form.keys()) if hasattr(frappe.request, 'form') else None}\n"
-                f"Files: {list(frappe.request.files.keys()) if hasattr(frappe.request, 'files') else None}\n"
-                f"Raw Text (First 2000 chars):\n{raw_text[:2000] if raw_text else '(empty)'}\n\n"
-                f"Parsed events_data:\n{json.dumps(events_data, indent=2, default=str)[:2000] if events_data else '(None)'}"
-            )
-            frappe.log_error(title="Hikvision Inbound Webhook Debug", message=debug_info)
-        except Exception:
-            pass
+            ace = events_data.get("AccessControllerEvent", {}) if isinstance(events_data.get("AccessControllerEvent"), dict) else events_data
+            # majorEventType 1, 2, 3 without employee (e.g. system status, tamper, door sensor 80)
+            if ace.get("majorEventType") in (1, 2, 3) and not _find_val(events_data, ("employeeNoString", "employeeNo", "cardNo", "employee_no")):
+                return {
+                    "statusCode": 1,
+                    "statusString": "OK",
+                    "subStatusCode": "ok",
+                    "message": "System event acknowledged"
+                }
 
         if not events_data:
             frappe.local.response["http_status_code"] = 400
@@ -288,11 +283,13 @@ def hikvision_event_receiver():
 
         frappe.db.commit()
 
-        if processed == 0:
-            frappe.log_error(
-                title="Hikvision Push: 0 Events Processed",
-                message=f"Received payload did not contain employee or timestamp:\n{json.dumps(events_data, indent=2, default=str)[:2000]}"
-            )
+        if processed == 0 and isinstance(events_data, dict):
+            ace = events_data.get("AccessControllerEvent", {}) if isinstance(events_data.get("AccessControllerEvent"), dict) else events_data
+            if ace.get("majorEventType") == 5:
+                frappe.log_error(
+                    title="Hikvision Access Event Skipped",
+                    message=f"Access event missing employee details:\n{json.dumps(events_data, indent=2, default=str)[:2000]}"
+                )
 
         # Hikvision expected response
         return {
