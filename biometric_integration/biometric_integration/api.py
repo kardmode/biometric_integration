@@ -152,6 +152,20 @@ def hikvision_event_receiver():
             except Exception:
                 pass
 
+        # Temporary Inbound Debug Logging for testing
+        try:
+            debug_info = (
+                f"Content-Type: {frappe.request.headers.get('Content-Type')}\n"
+                f"Query Params: {dict(frappe.request.args)}\n"
+                f"Form Keys: {list(frappe.request.form.keys()) if hasattr(frappe.request, 'form') else None}\n"
+                f"Files: {list(frappe.request.files.keys()) if hasattr(frappe.request, 'files') else None}\n"
+                f"Raw Text (First 2000 chars):\n{raw_text[:2000] if raw_text else '(empty)'}\n\n"
+                f"Parsed events_data:\n{json.dumps(events_data, indent=2, default=str)[:2000] if events_data else '(None)'}"
+            )
+            frappe.log_error(title="Hikvision Inbound Webhook Debug", message=debug_info)
+        except Exception:
+            pass
+
         if not events_data:
             frappe.local.response["http_status_code"] = 400
             return {"status": "error", "message": "No valid event payload found."}
