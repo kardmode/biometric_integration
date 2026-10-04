@@ -8,6 +8,26 @@ from frappe import _
 from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin, find_employee
 
 
+def _find_val(obj, keys):
+    """Recursively search for any of the given keys in a nested dict or list."""
+    if not obj:
+        return None
+    if isinstance(obj, dict):
+        for k in keys:
+            if k in obj and obj[k] is not None and str(obj[k]).strip() != "":
+                return obj[k]
+        for v in obj.values():
+            val = _find_val(v, keys)
+            if val:
+                return val
+    elif isinstance(obj, list):
+        for item in obj:
+            val = _find_val(item, keys)
+            if val:
+                return val
+    return None
+
+
 def _parse_xml_hikvision_event(xml_text):
     """Parses Hikvision XML event alert payload (EventNotificationAlert / AcsEvent)."""
     if not xml_text or not isinstance(xml_text, str) or "<" not in xml_text:
@@ -139,9 +159,18 @@ def hikvision_event_receiver():
         # Normalize events list
         event_list = []
         if isinstance(events_data, dict):
-            if "AcsEvent" in events_data and isinstance(events_data["AcsEvent"], dict):
+            if "InfoList" in events_data and isinstance(events_data["InfoList"], list):
+                event_list.extend(events_data["InfoList"])
+            elif "AcsEvent" in events_data and isinstance(events_data["AcsEvent"], dict):
                 info_list = events_data["AcsEvent"].get("InfoList") or [events_data["AcsEvent"]]
                 event_list.extend(info_list if isinstance(info_list, list) else [info_list])
+            elif "AccessControllerEvent" in events_data and isinstance(events_data["AccessControllerEvent"], dict):
+                sub = events_data["AccessControllerEvent"]
+                if "dateTime" not in sub and "dateTime" in events_data:
+                    sub["dateTime"] = events_data["dateTime"]
+                if "deviceName" not in sub and "deviceName" in events_data:
+                    sub["deviceName"] = events_data["deviceName"]
+                event_list.append(sub)
             elif "events" in events_data and isinstance(events_data["events"], list):
                 event_list.extend(events_data["events"])
             else:
@@ -154,21 +183,26 @@ def hikvision_event_receiver():
             if not isinstance(ev, dict):
                 continue
 
-            emp_no = ev.get("employeeNoString") or ev.get("employeeNo") or ev.get("cardNo")
-            event_timestamp = ev.get("time") or ev.get("dateTime")
-            dev_name = frappe.request.args.get("device") or ev.get("devName") or ev.get("devSerial") or ev.get("deviceName") or "Hikvision Terminal"
+            # Recursive search for employee ID across all possible Hikvision key names
+            emp_no = _find_val(ev, ("employeeNoString", "employeeNo", "cardNo", "employee_no"))
+            # Recursive search for event timestamp
+            event_timestamp = _find_val(ev, ("time", "dateTime", "eventTime", "recvTime"))
+            dev_name = frappe.request.args.get("device") or _find_val(ev, ("deviceName", "devName", "devSerial", "macAddress")) or "Hikvision Terminal"
 
             if not emp_no or not event_timestamp:
                 continue
 
             # Parse datetime
-            try:
-                event_datetime = datetime.strptime(str(event_timestamp)[:19], "%Y-%m-%dT%H:%M:%S")
-            except Exception:
+            event_datetime = None
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
                 try:
-                    event_datetime = datetime.strptime(str(event_timestamp)[:19], "%Y-%m-%d %H:%M:%S")
+                    event_datetime = datetime.strptime(str(event_timestamp)[:19], fmt)
+                    break
                 except Exception:
-                    continue
+                    pass
+
+            if not event_datetime:
+                continue
 
             # Smart employee lookup (supports leading zero normalization & custom naming series)
             emp = find_employee(emp_no)
@@ -191,8 +225,18 @@ def hikvision_event_receiver():
                 limit_page_length=1,
             )
 
+            existing_punch = False
             if bal:
                 doc = frappe.get_doc("Biometric Attendance Log", bal[0].name)
+                existing_punch = frappe.db.sql(
+                    """
+                    SELECT COUNT(*)
+                    FROM `tabBiometric Attendance Punch Table`
+                    WHERE parent = %(parent)s
+                    AND punch_time = %(punch_time)s
+                    """,
+                    {"parent": doc.name, "punch_time": event_datetime.time()},
+                )[0][0] > 0
             else:
                 doc = frappe.new_doc("Biometric Attendance Log")
                 doc.employee_no = log_emp_no
@@ -200,16 +244,6 @@ def hikvision_event_receiver():
 
             if emp_name:
                 doc.employee_name = emp_name
-
-            existing_punch = frappe.db.sql(
-                """
-                SELECT COUNT(*)
-                FROM `tabBiometric Attendance Punch Table`
-                WHERE parent = %(parent)s
-                AND punch_time = %(punch_time)s
-                """,
-                {"parent": doc.name, "punch_time": event_datetime.time()},
-            )[0][0] > 0
 
             if not existing_punch:
                 doc.append(
@@ -219,13 +253,22 @@ def hikvision_event_receiver():
                         "punch_type": "Auto",
                     },
                 )
-                doc.save(ignore_permissions=True)
+                if doc.is_new():
+                    doc.insert(ignore_permissions=True)
+                else:
+                    doc.save(ignore_permissions=True)
 
             # 2. Standard HRMS Employee Checkin creation
             create_employee_checkin(emp_no, event_datetime, log_type=None, device_id=dev_name)
             processed += 1
 
         frappe.db.commit()
+
+        if processed == 0:
+            frappe.log_error(
+                title="Hikvision Push: 0 Events Processed",
+                message=f"Received payload did not contain employee or timestamp:\n{json.dumps(events_data, indent=2, default=str)[:2000]}"
+            )
 
         # Hikvision expected response
         return {
