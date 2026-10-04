@@ -125,11 +125,11 @@
   {
    "child": 1,
    "collapsible": 1,
-   "icon": "setting-gear",
+   "icon": "devices",
    "indent": 0,
    "keep_closed": 0,
-   "label": "Biometric Integration Settings",
-   "link_to": "Biometric Integration Settings",
+   "label": "Biometric Devices",
+   "link_to": "Biometric Device",
    "link_type": "DocType",
    "show_arrow": 0,
    "type": "Link"

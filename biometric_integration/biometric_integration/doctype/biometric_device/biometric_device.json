@@ -12,6 +12,7 @@
   "enabled",
   "device_direction",
   "location",
+  "punch_cooldown_minutes",
   "column_break_1",
   "ip",
   "protocol",
@@ -19,6 +20,10 @@
   "username",
   "password",
   "timezone",
+  "webhook_section",
+  "webhook_secret_key",
+  "webhook_endpoint_url",
+  "column_break_webhook",
   "device_info_section",
   "status",
   "last_sync",
@@ -66,6 +71,14 @@
    "label": "Location / Gate"
   },
   {
+   "default": "5",
+   "description": "Ignore repeat punches for the same employee within this window (minutes)",
+   "fieldname": "punch_cooldown_minutes",
+   "fieldtype": "Int",
+   "label": "Punch Cooldown (Minutes)",
+   "non_negative": 1
+  },
+  {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
   },
@@ -105,6 +118,28 @@
    "fieldname": "timezone",
    "fieldtype": "Data",
    "label": "Timezone"
+  },
+  {
+   "fieldname": "webhook_section",
+   "fieldtype": "Section Break",
+   "label": "Real-Time Webhook (HTTP Push / Alarm Host)"
+  },
+  {
+   "description": "Unique authentication token for this device (auto-generated on save)",
+   "fieldname": "webhook_secret_key",
+   "fieldtype": "Data",
+   "label": "Webhook Secret Key"
+  },
+  {
+   "fieldname": "column_break_webhook",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Copy and paste this URL into your Hikvision terminal HTTP Listening / Alarm Host settings",
+   "fieldname": "webhook_endpoint_url",
+   "fieldtype": "Data",
+   "label": "Push Receiver URL",
+   "read_only": 1
   },
   {
    "fieldname": "device_info_section",

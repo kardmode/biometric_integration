@@ -3,6 +3,13 @@
 
 frappe.ui.form.on('Biometric Device', {
     refresh(frm) {
+        if (!frm.is_new() && frm.doc.webhook_endpoint_url) {
+            frm.add_custom_button(__('Copy Push URL'), function() {
+                frappe.utils.copy_to_clipboard(frm.doc.webhook_endpoint_url);
+                frappe.show_alert({ message: __('Push URL copied to clipboard!'), indicator: 'green' });
+            });
+        }
+
         if (!frm.is_new() && frm.doc.ip && frm.doc.username) {
             frm.add_custom_button(__('Test Connection'), function() {
                 frappe.call({

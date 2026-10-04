@@ -32,6 +32,21 @@ class BiometricDevice(Document):
         return "+00:00"
 
     def before_save(self):
+        import secrets
+        from frappe.utils import get_url
+
+        # Ensure webhook token exists
+        if not self.webhook_secret_key:
+            self.webhook_secret_key = secrets.token_hex(12)
+
+        # Generate copy-paste push endpoint URL
+        site_url = get_url()
+        self.webhook_endpoint_url = f"{site_url}/api/method/biometric_integration.api.push?token={self.webhook_secret_key}"
+
+        # Ensure default cooldown
+        if not self.punch_cooldown_minutes or self.punch_cooldown_minutes < 0:
+            self.punch_cooldown_minutes = 5
+
         if not self.ip or not self.username:
             return
 

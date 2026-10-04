@@ -89,14 +89,6 @@ def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=N
         return None
 
     try:
-        try:
-            settings = frappe.get_cached_doc("Biometric Integration Settings")
-        except Exception:
-            settings = None
-
-        if settings and hasattr(settings, "sync_to_employee_checkin") and not settings.sync_to_employee_checkin:
-            return None
-
         # Resolve employee
         emp = find_employee(employee_id_or_device_id)
         if not emp:
@@ -108,13 +100,7 @@ def create_employee_checkin(employee_id_or_device_id, punch_datetime, log_type=N
             return None
         punch_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Allow settings to override cooldown_minutes if configured
-        cooldown = cooldown_minutes
-        if settings and hasattr(settings, "punch_cooldown_minutes") and settings.punch_cooldown_minutes is not None:
-            try:
-                cooldown = int(settings.punch_cooldown_minutes)
-            except Exception:
-                cooldown = cooldown_minutes
+        cooldown = int(cooldown_minutes) if cooldown_minutes is not None else 5
 
         # Debounce: check for any checkin for this employee within +/- cooldown minutes
         if cooldown > 0:

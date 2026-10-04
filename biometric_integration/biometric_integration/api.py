@@ -78,19 +78,34 @@ def hikvision_event_receiver():
     Accepts JSON, XML, or multipart/form-data payloads from Hikvision MinMoe face terminals.
     """
     try:
-        try:
-            settings = frappe.get_cached_doc("Biometric Integration Settings")
-        except Exception:
-            settings = None
-
-        if not settings or not getattr(settings, "enable_webhook_receiver", 1):
-            frappe.local.response["http_status_code"] = 403
-            return {"status": "error", "message": "Webhook receiver is disabled."}
-
-        # Validate secret token
+        # Validate secret token and resolve Biometric Device
         token = frappe.request.args.get("token") or frappe.request.headers.get("X-Webhook-Token")
-        expected_token = getattr(settings, "webhook_secret_key", None)
-        if expected_token and token != expected_token:
+        matched_device = None
+
+        if token and frappe.db.table_exists("Biometric Device"):
+            matched_device = frappe.db.get_value(
+                "Biometric Device",
+                {"webhook_secret_key": token, "enabled": 1},
+                ["name", "device_name", "device_direction", "punch_cooldown_minutes", "mac_address", "ip"],
+                as_dict=True
+            )
+
+        # Fallback for existing terminal token during migration
+        if not matched_device and frappe.db.table_exists("Biometric Integration Settings"):
+            try:
+                settings = frappe.get_cached_doc("Biometric Integration Settings")
+                expected_token = getattr(settings, "webhook_secret_key", None)
+                if expected_token and token == expected_token:
+                    matched_device = frappe._dict({
+                        "name": getattr(settings, "device_name", None) or "Hikvision Terminal",
+                        "device_name": getattr(settings, "device_name", None) or "Hikvision Terminal",
+                        "device_direction": "Auto",
+                        "punch_cooldown_minutes": 5
+                    })
+            except Exception:
+                pass
+
+        if not matched_device:
             frappe.local.response["http_status_code"] = 401
             return {"status": "error", "message": "Invalid or missing webhook token."}
 
@@ -197,6 +212,10 @@ def hikvision_event_receiver():
         elif isinstance(events_data, list):
             event_list.extend(events_data)
 
+        matched_dev_name = matched_device.get("device_name") or matched_device.get("name") if matched_device else None
+        dev_direction = matched_device.get("device_direction") if matched_device and matched_device.get("device_direction") in ("IN", "OUT") else None
+        cooldown = matched_device.get("punch_cooldown_minutes") or 5 if matched_device else 5
+
         processed = 0
         for ev in event_list:
             if not isinstance(ev, dict):
@@ -206,7 +225,7 @@ def hikvision_event_receiver():
             emp_no = _find_val(ev, ("employeeNoString", "employeeNo", "cardNo", "employee_no"))
             # Recursive search for event timestamp
             event_timestamp = _find_val(ev, ("time", "dateTime", "eventTime", "recvTime"))
-            dev_name = frappe.request.args.get("device") or _find_val(ev, ("deviceName", "devName", "devSerial", "macAddress")) or "Hikvision Terminal"
+            dev_name = matched_dev_name or frappe.request.args.get("device") or _find_val(ev, ("deviceName", "devName", "devSerial", "macAddress")) or "Hikvision Terminal"
 
             if not emp_no or not event_timestamp:
                 continue
@@ -223,13 +242,13 @@ def hikvision_event_receiver():
             if not event_datetime:
                 continue
 
-            # Create standard HRMS Employee Checkin with intelligent 5-minute debounce
+            # Create standard HRMS Employee Checkin with intelligent debounce
             checkin_id = create_employee_checkin(
                 emp_no,
                 event_datetime,
-                log_type=None,
+                log_type=dev_direction,
                 device_id=dev_name,
-                cooldown_minutes=5
+                cooldown_minutes=cooldown
             )
             if checkin_id:
                 processed += 1
