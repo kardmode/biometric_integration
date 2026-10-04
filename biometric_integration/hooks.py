@@ -84,6 +84,7 @@ add_to_apps_screen = [
 
 # before_install = "biometric_integration.install.before_install"
 # after_install = "biometric_integration.install.after_install"
+after_migrate = "biometric_integration.biometric_integration.setup.setup_custom_fields"
 
 # Uninstallation
 # ------------
@@ -129,9 +130,9 @@ add_to_apps_screen = [
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Shift Type": "biometric_integration.biometric_integration.overrides.CustomShiftType"
+}
 
 # Document Events
 # ---------------
