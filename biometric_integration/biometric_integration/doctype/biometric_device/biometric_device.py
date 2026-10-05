@@ -77,6 +77,73 @@ class BiometricDevice(Document):
             # Never block saving the record.
             self.status = "Offline"
 
+    @frappe.whitelist()
+    def unlock_door(self):
+        """
+        Triggers a remote unlock pulse on this device's relay (Built-in ISAPI or External Shelly).
+        """
+        if not self.enable_access_control:
+            frappe.throw(frappe._("Door Access Control is not enabled on this device."))
+
+        # 1. Trigger Built-in Terminal Relay via Hikvision ISAPI
+        if getattr(self, "relay_control_type", None) == "Built-in Terminal Relay (Hikvision ISAPI)" or not self.relay_control_type:
+            password = self.get_password("password")
+            if not self.ip or not self.username or not password:
+                frappe.throw(frappe._("Device IP, username, and password are required to trigger unlock."))
+
+            url = f"{self.get_base_url()}/ISAPI/AccessControl/RemoteControl/door/1"
+            headers = {"Content-Type": "application/xml"}
+            payload = "<RemoteControlDoor><cmd>open</cmd></RemoteControlDoor>"
+
+            try:
+                resp = requests.put(
+                    url,
+                    data=payload,
+                    headers=headers,
+                    auth=HTTPDigestAuth(self.username, password),
+                    timeout=5,
+                    verify=False
+                )
+                if resp.status_code not in (200, 204):
+                    frappe.throw(frappe._("Hikvision terminal returned error status {0}: {1}").format(resp.status_code, resp.text[:200]))
+            except Exception as e:
+                frappe.throw(frappe._("Failed to connect to Hikvision terminal at {0}: {1}").format(self.ip, str(e)))
+
+        # 2. Trigger External Relay (Shelly Plus 1 HTTP)
+        elif self.relay_control_type == "External Relay (Shelly Plus 1 HTTP)":
+            relay_ip = getattr(self, "external_relay_ip", None) or self.ip
+            channel = getattr(self, "external_relay_channel", 0) or 0
+            pulse_sec = getattr(self, "relay_pulse_seconds", 3) or 3
+            url = f"http://{relay_ip}/rpc/Switch.Set?id={channel}&on=true&toggle_after={pulse_sec}"
+            try:
+                resp = requests.get(url, timeout=5)
+                if resp.status_code != 200:
+                    frappe.throw(frappe._("Shelly relay returned error status {0}: {1}").format(resp.status_code, resp.text[:200]))
+            except Exception as e:
+                frappe.throw(frappe._("Failed to connect to Shelly relay at {0}: {1}").format(relay_ip, str(e)))
+
+        # Update last unlock
+        now = now_datetime()
+        self.db_set("last_unlock_time", now)
+        self.db_set("last_unlock_user", frappe.session.user)
+
+        # Log to Door Access Log
+        if frappe.db.table_exists("Door Access Log"):
+            try:
+                log = frappe.new_doc("Door Access Log")
+                log.update({
+                    "device": self.name,
+                    "timestamp": now,
+                    "status": "Granted",
+                    "access_method": "Manual Override",
+                    "details": f"Remote desk unlock triggered by {frappe.session.user}"
+                })
+                log.insert(ignore_permissions=True)
+            except Exception:
+                pass
+
+        return {"status": "success", "message": frappe._("Door unlock pulse triggered successfully!")}
+
 
 @frappe.whitelist()
 def check_device_connection(device_name):

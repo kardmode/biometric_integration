@@ -10,16 +10,32 @@
   "general_section",
   "device_name",
   "enabled",
-  "device_direction",
+  "column_break_capabilities",
+  "enable_attendance",
+  "enable_access_control",
   "location",
-  "punch_cooldown_minutes",
-  "column_break_1",
+  "connection_section",
   "ip",
   "protocol",
   "port",
+  "column_break_conn",
   "username",
   "password",
   "timezone",
+  "attendance_section",
+  "device_direction",
+  "punch_cooldown_minutes",
+  "access_control_section",
+  "door_type",
+  "relay_control_type",
+  "relay_pulse_seconds",
+  "column_break_relay",
+  "external_relay_ip",
+  "external_relay_channel",
+  "permissions_section",
+  "allow_all_active_employees",
+  "allowed_roles",
+  "allowed_employees",
   "webhook_section",
   "webhook_secret_key",
   "webhook_endpoint_url",
@@ -31,7 +47,9 @@
   "device_id",
   "model",
   "device_serial_number",
-  "mac_address"
+  "mac_address",
+  "last_unlock_time",
+  "last_unlock_user"
  ],
  "fields": [
   {
@@ -57,12 +75,26 @@
    "label": "Enabled"
   },
   {
-   "default": "Auto",
-   "fieldname": "device_direction",
-   "fieldtype": "Select",
+   "fieldname": "column_break_capabilities",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Records Employee Checkin logs for time and attendance tracking",
+   "fieldname": "enable_attendance",
+   "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Direction",
-   "options": "Auto\nIN\nOUT"
+   "in_standard_filter": 1,
+   "label": "Enable Attendance"
+  },
+  {
+   "default": "0",
+   "description": "Controls door locking relay and access permissions",
+   "fieldname": "enable_access_control",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enable Door Access Control"
   },
   {
    "fieldname": "location",
@@ -71,16 +103,9 @@
    "label": "Location / Gate"
   },
   {
-   "default": "5",
-   "description": "Ignore repeat punches for the same employee within this window (minutes)",
-   "fieldname": "punch_cooldown_minutes",
-   "fieldtype": "Int",
-   "label": "Punch Cooldown (Minutes)",
-   "non_negative": 1
-  },
-  {
-   "fieldname": "column_break_1",
-   "fieldtype": "Column Break"
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "Network & Connection"
   },
   {
    "fieldname": "ip",
@@ -102,6 +127,10 @@
    "label": "Port (Optional)"
   },
   {
+   "fieldname": "column_break_conn",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "username",
    "fieldtype": "Data",
    "label": "Username",
@@ -118,6 +147,102 @@
    "fieldname": "timezone",
    "fieldtype": "Data",
    "label": "Timezone"
+  },
+  {
+   "depends_on": "eval:doc.enable_attendance",
+   "fieldname": "attendance_section",
+   "fieldtype": "Section Break",
+   "label": "Attendance Settings"
+  },
+  {
+   "default": "Auto",
+   "fieldname": "device_direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Direction",
+   "options": "Auto\nIN\nOUT"
+  },
+  {
+   "default": "5",
+   "description": "Ignore repeat punches for the same employee within this window (minutes)",
+   "fieldname": "punch_cooldown_minutes",
+   "fieldtype": "Int",
+   "label": "Punch Cooldown (Minutes)",
+   "non_negative": 1
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control",
+   "fieldname": "access_control_section",
+   "fieldtype": "Section Break",
+   "label": "Door & Access Control"
+  },
+  {
+   "default": "Maglock Door",
+   "fieldname": "door_type",
+   "fieldtype": "Select",
+   "label": "Door Type",
+   "options": "Maglock Door\nRoller Shutter Gate\nMotorized Barrier Gate\nTurnstile\nOther"
+  },
+  {
+   "default": "Built-in Terminal Relay (Hikvision ISAPI)",
+   "fieldname": "relay_control_type",
+   "fieldtype": "Select",
+   "label": "Relay Control Type",
+   "options": "Built-in Terminal Relay (Hikvision ISAPI)\nExternal Relay (Shelly Plus 1 HTTP)\nExternal Relay (ESP32 / Custom HTTP)"
+  },
+  {
+   "default": "3",
+   "description": "Duration in seconds to pulse the door unlock relay",
+   "fieldname": "relay_pulse_seconds",
+   "fieldtype": "Int",
+   "label": "Relay Pulse (Seconds)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_relay",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.relay_control_type != 'Built-in Terminal Relay (Hikvision ISAPI)'",
+   "description": "IP or hostname of external Shelly or ESP32 relay (if not using built-in terminal relay)",
+   "fieldname": "external_relay_ip",
+   "fieldtype": "Data",
+   "label": "External Relay IP / Hostname"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.relay_control_type != 'Built-in Terminal Relay (Hikvision ISAPI)'",
+   "fieldname": "external_relay_channel",
+   "fieldtype": "Int",
+   "label": "External Relay Channel",
+   "non_negative": 1
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control",
+   "fieldname": "permissions_section",
+   "fieldtype": "Section Break",
+   "label": "Access Permissions"
+  },
+  {
+   "default": "1",
+   "description": "Grant access to all employees who have Active employment status",
+   "fieldname": "allow_all_active_employees",
+   "fieldtype": "Check",
+   "label": "Allow All Active Employees"
+  },
+  {
+   "depends_on": "eval:!doc.allow_all_active_employees",
+   "fieldname": "allowed_roles",
+   "fieldtype": "Table",
+   "label": "Allowed Roles",
+   "options": "Access Door Role"
+  },
+  {
+   "depends_on": "eval:!doc.allow_all_active_employees",
+   "fieldname": "allowed_employees",
+   "fieldtype": "Table",
+   "label": "Allowed Employees",
+   "options": "Access Door Employee"
   },
   {
    "fieldname": "webhook_section",
@@ -189,12 +314,25 @@
    "fieldtype": "Data",
    "label": "MAC Address",
    "read_only": 1
+  },
+  {
+   "fieldname": "last_unlock_time",
+   "fieldtype": "Datetime",
+   "label": "Last Remote Unlock",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_unlock_user",
+   "fieldtype": "Link",
+   "label": "Last Unlocked By",
+   "options": "User",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-01 22:35:00.000000",
+ "modified": "2026-10-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Biometric Integration",
  "name": "Biometric Device",

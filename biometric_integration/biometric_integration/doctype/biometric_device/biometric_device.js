@@ -10,6 +10,28 @@ frappe.ui.form.on('Biometric Device', {
             });
         }
 
+        if (!frm.is_new() && frm.doc.enable_access_control) {
+            frm.add_custom_button(__('Unlock Door'), function() {
+                frappe.confirm(
+                    __('Trigger remote unlock pulse on <b>{0}</b>?', [frm.doc.device_name || frm.doc.name]),
+                    function() {
+                        frappe.call({
+                            method: 'unlock_door',
+                            doc: frm.doc,
+                            freeze: true,
+                            freeze_message: __('Unlocking door...'),
+                            callback: function(r) {
+                                if (r.message && r.message.status === 'success') {
+                                    frappe.show_alert({ message: r.message.message, indicator: 'green' });
+                                    frm.reload_doc();
+                                }
+                            }
+                        });
+                    }
+                );
+            }).addClass('btn-success');
+        }
+
         if (!frm.is_new() && frm.doc.ip && frm.doc.username) {
             frm.add_custom_button(__('Test Connection'), function() {
                 frappe.call({

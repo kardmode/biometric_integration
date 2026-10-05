@@ -86,7 +86,7 @@ def hikvision_event_receiver():
             matched_device = frappe.db.get_value(
                 "Biometric Device",
                 {"webhook_secret_key": token, "enabled": 1},
-                ["name", "device_name", "device_direction", "punch_cooldown_minutes", "mac_address", "ip"],
+                ["name", "device_name", "device_direction", "punch_cooldown_minutes", "mac_address", "ip", "enable_attendance", "enable_access_control"],
                 as_dict=True
             )
 
@@ -227,16 +227,44 @@ def hikvision_event_receiver():
             if not event_datetime:
                 continue
 
-            # Create standard HRMS Employee Checkin with intelligent debounce
-            checkin_id = create_employee_checkin(
-                emp_no,
-                event_datetime,
-                log_type=dev_direction,
-                device_id=dev_name,
-                cooldown_minutes=cooldown
-            )
-            if checkin_id:
-                processed += 1
+            enable_att = bool(matched_device.get("enable_attendance", 1)) if matched_device and "enable_attendance" in matched_device else True
+            enable_acc = bool(matched_device.get("enable_access_control", 0)) if matched_device else False
+
+            # 1. Attendance Checkin
+            if enable_att:
+                checkin_id = create_employee_checkin(
+                    emp_no,
+                    event_datetime,
+                    log_type=dev_direction,
+                    device_id=dev_name,
+                    cooldown_minutes=cooldown
+                )
+                if checkin_id:
+                    processed += 1
+
+            # 2. Door Access Security Log
+            if enable_acc and frappe.db.table_exists("Door Access Log"):
+                try:
+                    emp = frappe.db.get_value("Employee", {"attendance_device_id": emp_no}, ["name", "employee_name"], as_dict=True)
+                    emp_id = emp.name if emp else None
+                    emp_name = emp.employee_name if emp else None
+
+                    access_log = frappe.new_doc("Door Access Log")
+                    access_log.update({
+                        "device": matched_dev_name or dev_name,
+                        "timestamp": event_datetime,
+                        "status": "Granted",
+                        "access_method": "Face Recognition",
+                        "employee": emp_id,
+                        "employee_name": emp_name,
+                        "card_id": str(emp_no),
+                        "details": f"Authenticated at {dev_name}"
+                    })
+                    access_log.insert(ignore_permissions=True)
+                    if not enable_att:
+                        processed += 1
+                except Exception:
+                    pass
 
         frappe.db.commit()
 
