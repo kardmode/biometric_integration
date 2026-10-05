@@ -9,7 +9,6 @@
  "field_order": [
   "general_section",
   "device",
-  "door",
   "timestamp",
   "status",
   "access_method",
@@ -32,14 +31,6 @@
    "in_standard_filter": 1,
    "label": "Biometric / Access Device",
    "options": "Biometric Device"
-  },
-  {
-   "fieldname": "door",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Door / Gate",
-   "options": "Access Door"
   },
   {
    "fieldname": "timestamp",
@@ -151,7 +142,7 @@
   }
  ],
  "row_format": "Dynamic",
- "search_fields": "device,door,employee,employee_name,status",
+ "search_fields": "device,employee,employee_name,status",
  "sort_field": "timestamp",
  "sort_order": "DESC",
  "states": [],

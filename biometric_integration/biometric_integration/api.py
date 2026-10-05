@@ -303,35 +303,36 @@ def push():
 @frappe.whitelist()
 def unlock_access_door(door_name):
     """
-    Triggers an unlock relay pulse on an Access Door (Shelly, ESP32, or relay).
+    Triggers an unlock relay pulse on a Biometric / Access Device.
     Intended for mobile web / PWA 1-tap phone unlock by authorized users.
     """
     if frappe.session.user == "Guest":
         frappe.throw(_("Authentication required to unlock doors."), frappe.PermissionError)
 
-    if not frappe.db.exists("Access Door", door_name):
-        frappe.throw(_("Access Door {0} not found.").format(door_name))
+    device_name = door_name
+    if not frappe.db.exists("Biometric Device", device_name):
+        dev = frappe.db.get_value("Biometric Device", {"device_name": door_name}, "name")
+        if dev:
+            device_name = dev
+        else:
+            frappe.throw(_("Device / Door {0} not found.").format(door_name))
 
-    door = frappe.get_doc("Access Door", door_name)
-    if not door.allow_mobile_unlock:
-        frappe.throw(_("Mobile phone unlock is disabled for door {0}.").format(door_name))
+    device = frappe.get_doc("Biometric Device", device_name)
+    if not device.enable_access_control:
+        frappe.throw(_("Door access control is not enabled on {0}.").format(device.device_name))
 
-    return door.unlock(source="Mobile Web Button", user=frappe.session.user)
+    if not device.is_user_authorized(user=frappe.session.user):
+        frappe.throw(_("You are not authorized to unlock {0}.").format(device.device_name), frappe.PermissionError)
+
+    return device.unlock_door(source="Mobile Web Button", user=frappe.session.user)
 
 
 @frappe.whitelist()
 def trigger_access_shutter(door_name):
     """
-    Sends a momentary 0.5s cycle pulse to an industrial warehouse roller shutter.
+    Sends a momentary cycle pulse to a roller shutter or barrier gate.
     """
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Authentication required."), frappe.PermissionError)
-
-    if not frappe.db.exists("Access Door", door_name):
-        frappe.throw(_("Door / Shutter {0} not found.").format(door_name))
-
-    door = frappe.get_doc("Access Door", door_name)
-    return door.trigger_shutter(source="Mobile Web Button", user=frappe.session.user)
+    return unlock_access_door(door_name)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -344,24 +345,39 @@ def shelly_door_webhook(door=None, state=None, event=None):
     if not door_name and hasattr(frappe.request, "json") and frappe.request.json:
         door_name = frappe.request.json.get("door")
 
-    if not door_name or not frappe.db.exists("Access Door", door_name):
-        frappe.local.response["http_status_code"] = 404
-        return {"status": "error", "message": f"Door {door_name} not found"}
+    device_name = door_name
+    if not frappe.db.exists("Biometric Device", device_name):
+        dev = frappe.db.get_value("Biometric Device", {"device_name": door_name}, "name")
+        if dev:
+            device_name = dev
+        else:
+            frappe.local.response["http_status_code"] = 404
+            return {"status": "error", "message": f"Device / Door {door_name} not found"}
 
-    # Determine state: 'open', 'closed', 1, 0
     raw_state = state or frappe.request.args.get("state")
     if not raw_state and hasattr(frappe.request, "json") and frappe.request.json:
         raw_state = frappe.request.json.get("state") or frappe.request.json.get("status")
 
     is_open = str(raw_state).lower() in ["open", "1", "true", "opened"]
 
-    door_doc = frappe.get_doc("Access Door", door_name)
-    door_doc.update_sensor_state(is_open=is_open)
+    if frappe.db.table_exists("Door Access Log"):
+        try:
+            log = frappe.new_doc("Door Access Log")
+            log.update({
+                "device": device_name,
+                "timestamp": now_datetime(),
+                "status": "Door Opened" if is_open else "Door Closed",
+                "access_method": "Door Position Sensor",
+                "details": f"Sensor state changed to {'Open' if is_open else 'Closed'}"
+            })
+            log.insert(ignore_permissions=True)
+        except Exception:
+            pass
 
     return {
         "status": "success",
-        "door": door_name,
-        "current_state": door_doc.current_state
+        "device": device_name,
+        "current_state": "Open" if is_open else "Closed"
     }
 
 
@@ -369,8 +385,7 @@ def shelly_door_webhook(door=None, state=None, event=None):
 def verify_card_access(door=None, card_id=None):
     """
     Called by an ESP32 or smart Wiegand controller when an employee taps
-    an Anti-Metal Phone Sticker or RFID keyfob at the door reader.
-    Returns authorization decision and relay pulse seconds.
+    an RFID keyfob or sticker at the reader. Returns authorization decision.
     """
     door_name = door or frappe.request.args.get("door")
     tag_id = card_id or frappe.request.args.get("card_id")
@@ -384,41 +399,48 @@ def verify_card_access(door=None, card_id=None):
         frappe.local.response["http_status_code"] = 400
         return {"authorized": False, "message": "Missing door or card_id"}
 
-    if not frappe.db.exists("Access Door", door_name):
-        return {"authorized": False, "message": f"Door {door_name} not found"}
+    device_name = door_name
+    if not frappe.db.exists("Biometric Device", device_name):
+        dev = frappe.db.get_value("Biometric Device", {"device_name": door_name}, "name")
+        if dev:
+            device_name = dev
+        else:
+            return {"authorized": False, "message": f"Device {door_name} not found"}
 
-    door_doc = frappe.get_doc("Access Door", door_name)
-    if not door_doc.enabled:
-        return {"authorized": False, "message": "Door disabled"}
+    device = frappe.get_doc("Biometric Device", device_name)
+    if not device.enabled:
+        return {"authorized": False, "message": "Device disabled"}
 
-    # Smart lookup employee by attendance_device_id, card RFID, or employee naming series
     emp = find_employee(tag_id)
 
-    # Check authorization against door permissions
     is_authorized = False
     deny_reason = "Unregistered Card"
     if emp:
         if emp.status != "Active":
             deny_reason = "Inactive Employee"
-        elif not door_doc.is_user_authorized(employee_doc=emp):
+        elif not device.is_user_authorized(employee_doc=emp):
             deny_reason = f"Unauthorized: Employee {emp.employee_name} has no permission for this door"
         else:
             is_authorized = True
 
-    pulse = float(door_doc.relay_pulse_seconds or 3.0)
+    pulse = float(getattr(device, "relay_pulse_seconds", 3) or 3.0)
 
-    log = frappe.get_doc({
-        "doctype": "Door Access Log",
-        "door": door_name,
-        "timestamp": now_datetime(),
-        "employee": emp.name if emp else None,
-        "employee_name": emp.employee_name if emp else "Unknown Cardholder",
-        "card_id": str(tag_id),
-        "access_method": "RFID Phone Sticker",
-        "status": "Granted" if is_authorized else "Denied",
-        "details": f"Relay pulse: {pulse}s" if is_authorized else deny_reason
-    })
-    log.insert(ignore_permissions=True)
+    if frappe.db.table_exists("Door Access Log"):
+        try:
+            log = frappe.get_doc({
+                "doctype": "Door Access Log",
+                "device": device_name,
+                "timestamp": now_datetime(),
+                "employee": emp.name if emp else None,
+                "employee_name": emp.employee_name if emp else "Unknown Cardholder",
+                "card_id": str(tag_id),
+                "access_method": "RFID Phone Sticker",
+                "status": "Granted" if is_authorized else "Denied",
+                "details": f"Relay pulse: {pulse}s" if is_authorized else deny_reason
+            })
+            log.insert(ignore_permissions=True)
+        except Exception:
+            pass
 
     return {
         "authorized": is_authorized,
@@ -430,32 +452,31 @@ def verify_card_access(door=None, card_id=None):
 @frappe.whitelist()
 def get_accessible_doors():
     """
-    Returns only the doors that the currently logged-in user / employee
+    Returns only the devices/doors that the currently logged-in user / employee
     is authorized to see and unlock on their mobile dashboard.
     """
     if frappe.session.user == "Guest":
         return []
 
     user = frappe.session.user
-    door_names = frappe.get_all(
-        "Access Door",
-        filters={"enabled": 1, "allow_mobile_unlock": 1},
+    device_names = frappe.get_all(
+        "Biometric Device",
+        filters={"enabled": 1, "enable_access_control": 1},
         pluck="name",
-        order_by="door_name asc"
+        order_by="device_name asc"
     )
 
     authorized_doors = []
-    for d_name in door_names:
-        door = frappe.get_doc("Access Door", d_name)
-        if door.is_user_authorized(user=user):
+    for d_name in device_names:
+        device = frappe.get_doc("Biometric Device", d_name)
+        if device.is_user_authorized(user=user):
             authorized_doors.append({
-                "name": door.name,
-                "door_name": door.door_name,
-                "door_type": door.door_type,
-                "location": door.location,
-                "current_state": door.current_state,
-                "last_state_change": door.last_state_change,
-                "relay_pulse_seconds": door.relay_pulse_seconds
+                "name": device.name,
+                "door_name": device.device_name,
+                "door_type": getattr(device, "door_type", "Maglock Door") or "Maglock Door",
+                "location": device.location or "Factory",
+                "current_state": "Closed",
+                "relay_pulse_seconds": getattr(device, "relay_pulse_seconds", 3) or 3
             })
 
     return authorized_doors

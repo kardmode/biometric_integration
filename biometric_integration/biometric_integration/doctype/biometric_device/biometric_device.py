@@ -77,13 +77,55 @@ class BiometricDevice(Document):
             # Never block saving the record.
             self.status = "Offline"
 
+    def is_user_authorized(self, user=None, employee_doc=None):
+        """
+        Validates if the user or employee has authorization for this device / door.
+        """
+        user = user or frappe.session.user
+
+        # 1. System Manager and HR Manager always have access
+        user_roles = set(frappe.get_roles(user))
+        if "System Manager" in user_roles or "HR Manager" in user_roles:
+            return True
+
+        # Resolve employee
+        emp = employee_doc
+        if not emp and user != "Guest":
+            emp = frappe.db.get_value(
+                "Employee",
+                {"user_id": user},
+                ["name", "employee_name", "status"],
+                as_dict=True
+            )
+
+        if not emp or emp.get("status") != "Active":
+            return False
+
+        # 2. If open to all active employees
+        if self.allow_all_active_employees:
+            return True
+
+        # 3. Check allowed roles
+        allowed_roles = {r.role for r in self.get("allowed_roles") or []}
+        if user_roles.intersection(allowed_roles):
+            return True
+
+        # 4. Check specific allowed employees
+        allowed_emps = {e.employee for e in self.get("allowed_employees") or []}
+        if emp.get("name") in allowed_emps:
+            return True
+
+        return False
+
     @frappe.whitelist()
-    def unlock_door(self):
+    def unlock_door(self, source="Remote Desk Unlock", user=None):
         """
         Triggers a remote unlock pulse on this device's relay (Built-in ISAPI or External Shelly).
         """
         if not self.enable_access_control:
             frappe.throw(frappe._("Door Access Control is not enabled on this device."))
+
+        invoker = user or frappe.session.user
 
         # 1. Trigger Built-in Terminal Relay via Hikvision ISAPI
         if getattr(self, "relay_control_type", None) == "Built-in Terminal Relay (Hikvision ISAPI)" or not self.relay_control_type:
@@ -125,7 +167,7 @@ class BiometricDevice(Document):
         # Update last unlock
         now = now_datetime()
         self.db_set("last_unlock_time", now)
-        self.db_set("last_unlock_user", frappe.session.user)
+        self.db_set("last_unlock_user", invoker)
 
         # Log to Door Access Log
         if frappe.db.table_exists("Door Access Log"):
@@ -135,8 +177,8 @@ class BiometricDevice(Document):
                     "device": self.name,
                     "timestamp": now,
                     "status": "Granted",
-                    "access_method": "Manual Override",
-                    "details": f"Remote desk unlock triggered by {frappe.session.user}"
+                    "access_method": source,
+                    "details": f"Remote unlock triggered by {invoker}"
                 })
                 log.insert(ignore_permissions=True)
             except Exception:
