@@ -188,7 +188,7 @@
    "fieldname": "relay_control_type",
    "fieldtype": "Select",
    "label": "Relay Control Type",
-   "options": "Built-in Terminal Relay (Hikvision ISAPI)\nExternal Relay (Shelly Plus 1 HTTP)\nExternal Relay (ESP32 / Custom HTTP)"
+   "options": "Built-in Terminal Relay (Hikvision ISAPI)\nExternal Relay (Shelly Plus / Pro / Dry Contact)\nExternal Relay (ESP32 / Custom HTTP)"
   },
   {
    "default": "3",
@@ -204,7 +204,7 @@
   },
   {
    "depends_on": "eval:doc.relay_control_type != 'Built-in Terminal Relay (Hikvision ISAPI)'",
-   "description": "IP or hostname of external Shelly or ESP32 relay (if not using built-in terminal relay)",
+   "description": "IP, hostname, or full HTTP URL of external Shelly (Plus / Pro) or ESP32 relay",
    "fieldname": "external_relay_ip",
    "fieldtype": "Data",
    "label": "External Relay IP / Hostname"
@@ -212,6 +212,7 @@
   {
    "default": "0",
    "depends_on": "eval:doc.relay_control_type != 'Built-in Terminal Relay (Hikvision ISAPI)'",
+   "description": "Relay channel or switch ID (e.g. 0 for Switch:0 / Relay 1, 1 for Switch:1 / Relay 2)",
    "fieldname": "external_relay_channel",
    "fieldtype": "Int",
    "label": "External Relay Channel",

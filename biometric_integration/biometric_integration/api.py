@@ -336,29 +336,29 @@ def trigger_access_shutter(door_name):
 
 
 @frappe.whitelist(allow_guest=True)
-def shelly_door_webhook(door=None, state=None, event=None):
+def door_sensor_webhook(door=None, device=None, state=None, event=None, channel=None):
     """
-    Receives live door position sensor events from a Shelly 1 Plus (SW input)
+    Receives live door position sensor events from a Shelly (Plus / Pro / Gen 1)
     or ESP32 whenever a door or shutter physically opens or closes.
     """
-    door_name = door or frappe.request.args.get("door")
-    if not door_name and hasattr(frappe.request, "json") and frappe.request.json:
-        door_name = frappe.request.json.get("door")
+    target = device or door or frappe.request.args.get("device") or frappe.request.args.get("door")
+    if not target and hasattr(frappe.request, "json") and frappe.request.json:
+        target = frappe.request.json.get("device") or frappe.request.json.get("door")
 
-    device_name = door_name
+    device_name = target
     if not frappe.db.exists("Biometric Device", device_name):
-        dev = frappe.db.get_value("Biometric Device", {"device_name": door_name}, "name")
+        dev = frappe.db.get_value("Biometric Device", {"device_name": target}, "name")
         if dev:
             device_name = dev
         else:
             frappe.local.response["http_status_code"] = 404
-            return {"status": "error", "message": f"Device / Door {door_name} not found"}
+            return {"status": "error", "message": f"Device / Door {target} not found"}
 
-    raw_state = state or frappe.request.args.get("state")
+    raw_state = state or frappe.request.args.get("state") or frappe.request.args.get("status")
     if not raw_state and hasattr(frappe.request, "json") and frappe.request.json:
         raw_state = frappe.request.json.get("state") or frappe.request.json.get("status")
 
-    is_open = str(raw_state).lower() in ["open", "1", "true", "opened"]
+    is_open = str(raw_state).lower() in ["open", "1", "true", "opened", "on"]
 
     if frappe.db.table_exists("Door Access Log"):
         try:
@@ -382,30 +382,42 @@ def shelly_door_webhook(door=None, state=None, event=None):
 
 
 @frappe.whitelist(allow_guest=True)
-def verify_card_access(door=None, card_id=None):
+def shelly_door_webhook(door=None, device=None, state=None, event=None, channel=None):
+    """Backwards-compatible alias for door_sensor_webhook."""
+    return door_sensor_webhook(door=door, device=device, state=state, event=event, channel=channel)
+
+
+@frappe.whitelist(allow_guest=True)
+def esp32_door_webhook(door=None, device=None, state=None, event=None, channel=None):
+    """Alias for door_sensor_webhook used by ESP32 microcontrollers."""
+    return door_sensor_webhook(door=door, device=device, state=state, event=event, channel=channel)
+
+
+@frappe.whitelist(allow_guest=True)
+def verify_card_access(door=None, device=None, card_id=None):
     """
     Called by an ESP32 or smart Wiegand controller when an employee taps
     an RFID keyfob or sticker at the reader. Returns authorization decision.
     """
-    door_name = door or frappe.request.args.get("door")
+    target = device or door or frappe.request.args.get("device") or frappe.request.args.get("door")
     tag_id = card_id or frappe.request.args.get("card_id")
 
     if not tag_id:
         if hasattr(frappe.request, "json") and frappe.request.json:
-            door_name = door_name or frappe.request.json.get("door")
+            target = target or frappe.request.json.get("device") or frappe.request.json.get("door")
             tag_id = frappe.request.json.get("card_id")
 
-    if not door_name or not tag_id:
+    if not target or not tag_id:
         frappe.local.response["http_status_code"] = 400
-        return {"authorized": False, "message": "Missing door or card_id"}
+        return {"authorized": False, "message": "Missing device/door or card_id"}
 
-    device_name = door_name
+    device_name = target
     if not frappe.db.exists("Biometric Device", device_name):
-        dev = frappe.db.get_value("Biometric Device", {"device_name": door_name}, "name")
+        dev = frappe.db.get_value("Biometric Device", {"device_name": target}, "name")
         if dev:
             device_name = dev
         else:
-            return {"authorized": False, "message": f"Device {door_name} not found"}
+            return {"authorized": False, "message": f"Device {target} not found"}
 
     device = frappe.get_doc("Biometric Device", device_name)
     if not device.enabled:

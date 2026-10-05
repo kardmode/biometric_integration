@@ -151,18 +151,59 @@ class BiometricDevice(Document):
             except Exception as e:
                 frappe.throw(frappe._("Failed to connect to Hikvision terminal at {0}: {1}").format(self.ip, str(e)))
 
-        # 2. Trigger External Relay (Shelly Plus 1 HTTP)
-        elif self.relay_control_type == "External Relay (Shelly Plus 1 HTTP)":
-            relay_ip = getattr(self, "external_relay_ip", None) or self.ip
+        # 2. Trigger External Relay (Shelly Plus / Pro / Dry Contact / Classic)
+        elif "Shelly" in (self.relay_control_type or ""):
+            relay_ip = (getattr(self, "external_relay_ip", None) or self.ip or "").strip()
+            if not relay_ip:
+                frappe.throw(frappe._("External Relay IP / Hostname is required for Shelly relay."))
+
+            relay_host = relay_ip.replace("http://", "").replace("https://", "").rstrip("/")
             channel = getattr(self, "external_relay_channel", 0) or 0
             pulse_sec = getattr(self, "relay_pulse_seconds", 3) or 3
-            url = f"http://{relay_ip}/rpc/Switch.Set?id={channel}&on=true&toggle_after={pulse_sec}"
+
+            # Shelly Gen 2 / Gen 3 / Pro (including Shelly Pro 1/2 Dry Contacts) uses RPC Switch.Set
+            rpc_url = f"http://{relay_host}/rpc/Switch.Set?id={channel}&on=true&toggle_after={pulse_sec}"
             try:
-                resp = requests.get(url, timeout=5)
-                if resp.status_code != 200:
-                    frappe.throw(frappe._("Shelly relay returned error status {0}: {1}").format(resp.status_code, resp.text[:200]))
+                resp = requests.get(rpc_url, timeout=5)
+                # Fallback to Gen 1 legacy endpoint if 404
+                if resp.status_code == 404:
+                    legacy_url = f"http://{relay_host}/relay/{channel}?turn=on&timer={pulse_sec}"
+                    resp = requests.get(legacy_url, timeout=5)
+
+                if resp.status_code not in (200, 204):
+                    frappe.throw(frappe._("Shelly relay at {0} returned error {1}: {2}").format(relay_host, resp.status_code, resp.text[:200]))
             except Exception as e:
-                frappe.throw(frappe._("Failed to connect to Shelly relay at {0}: {1}").format(relay_ip, str(e)))
+                frappe.throw(frappe._("Failed to connect to Shelly relay at {0}: {1}").format(relay_host, str(e)))
+
+        # 3. Trigger External Relay (ESP32 / Custom HTTP)
+        elif "ESP32" in (self.relay_control_type or "") or "Custom HTTP" in (self.relay_control_type or ""):
+            relay_target = (getattr(self, "external_relay_ip", None) or self.ip or "").strip()
+            if not relay_target:
+                frappe.throw(frappe._("External Relay IP / URL is required for ESP32 relay."))
+
+            channel = getattr(self, "external_relay_channel", 0) or 0
+            pulse_sec = getattr(self, "relay_pulse_seconds", 3) or 3
+
+            if not relay_target.startswith("http://") and not relay_target.startswith("https://"):
+                base_url = f"http://{relay_target}"
+            else:
+                base_url = relay_target.rstrip("/")
+
+            # If full URL endpoint path not specified, use default /unlock
+            if base_url.count("/") <= 2:
+                url = f"{base_url}/unlock"
+            else:
+                url = base_url
+
+            try:
+                resp = requests.get(url, params={"pulse": pulse_sec, "channel": channel}, timeout=5)
+                if resp.status_code not in (200, 204):
+                    if resp.status_code in (404, 405):
+                        resp = requests.post(url, json={"pulse": pulse_sec, "channel": channel, "command": "unlock"}, timeout=5)
+                    if resp.status_code not in (200, 204):
+                        frappe.throw(frappe._("ESP32 relay at {0} returned error {1}: {2}").format(url, resp.status_code, resp.text[:200]))
+            except Exception as e:
+                frappe.throw(frappe._("Failed to connect to ESP32 relay at {0}: {1}").format(url, str(e)))
 
         # Update last unlock
         now = now_datetime()
