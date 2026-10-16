@@ -3,6 +3,12 @@
 
 frappe.ui.form.on('Employee', {
     refresh(frm) {
+        // Enforce permission: only System Manager, HR Manager, or Administrator can edit physical access roles / admin flags
+        const isManager = (frappe.user_roles || []).includes('System Manager') || (frappe.user_roles || []).includes('HR Manager') || frappe.session.user === 'Administrator';
+        frm.set_df_property('custom_biometric_access_roles', 'read_only', !isManager);
+        frm.set_df_property('custom_biometric_blacklisted', 'read_only', !isManager);
+        frm.set_df_property('custom_biometric_device_admin', 'read_only', !isManager);
+
         if (frm.is_new()) return;
 
         // Custom buttons for Biometric Credential Management

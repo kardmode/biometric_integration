@@ -104,7 +104,6 @@ def setup_custom_fields():
 				"label": "Physical Door Access Roles",
 				"fieldtype": "Table",
 				"options": "Biometric Employee Access Role",
-				"permlevel": 1,
 				"description": "Tag this employee with one or more physical access roles (e.g. Server Room, Warehouse, Main Gate)",
 				"insert_after": "custom_biometric_exempt",
 			},
@@ -113,7 +112,6 @@ def setup_custom_fields():
 				"label": "Blacklist on Hardware (Deny Entry)",
 				"fieldtype": "Check",
 				"default": "0",
-				"permlevel": 1,
 				"description": "Instantly block physical terminal access and trigger hardware alarms upon scan",
 				"insert_after": "custom_biometric_access_roles",
 			},
@@ -122,7 +120,6 @@ def setup_custom_fields():
 				"label": "Hardware Device Administrator",
 				"fieldtype": "Check",
 				"default": "0",
-				"permlevel": 1,
 				"description": "Grant on-device local administrator menu access on physical terminal screens",
 				"insert_after": "custom_biometric_blacklisted",
 			},
@@ -137,3 +134,12 @@ def setup_custom_fields():
 		]
 	}
 	create_custom_fields(custom_fields, ignore_validate=True)
+
+	# Ensure permlevel is 0 so fields are visible on the Employee form
+	if frappe.db.table_exists("Custom Field"):
+		frappe.db.sql("""
+			UPDATE `tabCustom Field`
+			SET permlevel = 0
+			WHERE dt = 'Employee'
+			  AND fieldname IN ('custom_biometric_access_roles', 'custom_biometric_blacklisted', 'custom_biometric_device_admin')
+		""")
