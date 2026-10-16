@@ -161,6 +161,9 @@ def sync_employee_to_devices(employee_name):
     is_admin = bool(emp.get("custom_biometric_device_admin"))
     user_type = "blackList" if is_blacklisted else "normal"
     user_role = "admin" if is_admin else "normal"
+    is_long_term = emp.get("custom_biometric_long_term") if emp.get("custom_biometric_long_term") is not None else 1
+    valid_from = emp.get("date_of_joining") if not is_long_term else None
+    valid_to = (emp.get("contract_end_date") or emp.get("relieving_date")) if not is_long_term else None
 
     target_devices = get_target_devices_for_employee(emp)
     if not target_devices:
@@ -199,6 +202,9 @@ def sync_employee_to_devices(employee_name):
             pin=pin,
             user_type=user_type,
             user_role=user_role,
+            is_long_term=bool(is_long_term),
+            valid_from=valid_from,
+            valid_to=valid_to,
             face_image_bytes=face_bytes,
             plan_template_no=plan_no
         )
@@ -290,7 +296,11 @@ def sync_all_active_employees_to_device(device_name):
             "custom_biometric_face_image",
             "custom_biometric_exempt",
             "custom_biometric_blacklisted",
-            "custom_biometric_device_admin"
+            "custom_biometric_device_admin",
+            "custom_biometric_long_term",
+            "date_of_joining",
+            "contract_end_date",
+            "relieving_date"
         ]
     )
 
@@ -313,6 +323,9 @@ def sync_all_active_employees_to_device(device_name):
         is_admin = bool(emp_data.get("custom_biometric_device_admin"))
         user_type = "blackList" if is_blacklisted else "normal"
         user_role = "admin" if is_admin else "normal"
+        is_long_term = emp_data.get("custom_biometric_long_term") if emp_data.get("custom_biometric_long_term") is not None else 1
+        valid_from = emp_data.get("date_of_joining") if not is_long_term else None
+        valid_to = (emp_data.get("contract_end_date") or emp_data.get("relieving_date")) if not is_long_term else None
 
         # Clean up old ID if changed
         if enrolled_id and enrolled_id != emp_no:
@@ -333,6 +346,9 @@ def sync_all_active_employees_to_device(device_name):
             pin=pin,
             user_type=user_type,
             user_role=user_role,
+            is_long_term=bool(is_long_term),
+            valid_from=valid_from,
+            valid_to=valid_to,
             face_image_bytes=face_bytes,
             plan_template_no=plan_no
         )

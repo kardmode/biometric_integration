@@ -5,7 +5,7 @@ import json
 import logging
 import requests
 from requests.auth import HTTPDigestAuth
-from datetime import datetime
+from datetime import datetime, timedelta
 
 try:
     import pytz
@@ -94,16 +94,23 @@ def get_enrolled_user_count(device):
     return 0
 
 
-def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="normal", user_role="normal", valid_from=None, valid_to=None, max_times=None, tz_name=None, plan_template_no=1):
+def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="normal", user_role="normal", is_long_term=True, valid_from=None, valid_to=None, max_times=None, tz_name=None, plan_template_no=1):
     """
     Builds the standard UserInfo dict for Hikvision ISAPI.
     user_type: "normal", "visitor", "blackList"
     user_role: "normal", "admin"
+    is_long_term: if True, sets beginTime to 1970 and endTime to 2037 (never expires on hardware)
     """
     now = datetime.now()
-    begin_str = _format_iso_time(valid_from or now, tz_name)
-    # Default valid_to far in the future (2037 is safe before 2038 32-bit timestamp rollover)
-    end_str = _format_iso_time(valid_to or datetime(2037, 12, 31, 23, 59, 59), tz_name)
+    if is_long_term:
+        default_begin = datetime(1970, 1, 1, 0, 0, 0)
+        default_end = datetime(2037, 12, 31, 23, 59, 59)
+    else:
+        default_begin = now
+        default_end = now + timedelta(days=365)
+
+    begin_str = _format_iso_time(valid_from or default_begin, tz_name)
+    end_str = _format_iso_time(valid_to or default_end, tz_name)
 
     # Ensure ISO string has colon in timezone offset (+0400 -> +04:00)
     def fix_tz(s):
@@ -139,7 +146,7 @@ def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="n
     return user_info
 
 
-def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, door_no=1, user_type="normal", user_role="normal", valid_from=None, valid_to=None, face_image_bytes=None, plan_template_no=1):
+def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, door_no=1, user_type="normal", user_role="normal", is_long_term=True, valid_from=None, valid_to=None, face_image_bytes=None, plan_template_no=1):
     """
     Safely syncs employee info to a Hikvision terminal.
     
@@ -158,6 +165,7 @@ def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, doo
         door_no=door_no,
         user_type=user_type,
         user_role=user_role,
+        is_long_term=is_long_term,
         valid_from=valid_from,
         valid_to=valid_to,
         tz_name=device.timezone,

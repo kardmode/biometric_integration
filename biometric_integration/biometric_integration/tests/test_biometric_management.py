@@ -704,6 +704,32 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
         self.assertEqual(payload["userType"], "blackList")
         self.assertEqual(payload["userRole"], "admin")
 
+    def test_build_user_info_long_term_vs_validity_period(self):
+        """Long-term user sets 1970-2037 bounds, while non-long-term enforces strict dates."""
+        # 1. Long term user (default)
+        payload_long = build_user_info_payload(
+            employee_no="2001",
+            name="Permanent Staff",
+            is_long_term=True,
+            tz_name="UTC"
+        )
+        self.assertIn("1970-01-01", payload_long["Valid"]["beginTime"])
+        self.assertIn("2037-12-31", payload_long["Valid"]["endTime"])
+
+        # 2. Contractor with specific validity period
+        contract_start = datetime(2026, 1, 1, 8, 0, 0)
+        contract_end = datetime(2026, 12, 31, 18, 0, 0)
+        payload_contract = build_user_info_payload(
+            employee_no="2002",
+            name="Contractor",
+            is_long_term=False,
+            valid_from=contract_start,
+            valid_to=contract_end,
+            tz_name="UTC"
+        )
+        self.assertIn("2026-01-01", payload_contract["Valid"]["beginTime"])
+        self.assertIn("2026-12-31", payload_contract["Valid"]["endTime"])
+
     def test_alarm_event_classification(self):
         """Classify alarm event detects Duress, Blacklist, Tamper, Door Forced, and Held Open."""
         from biometric_integration.biometric_integration.api import classify_alarm_event

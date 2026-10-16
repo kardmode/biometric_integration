@@ -126,6 +126,14 @@ def setup_custom_fields():
 				"description": "Grant on-device local administrator menu access on physical terminal screens",
 				"insert_after": "custom_biometric_blacklisted",
 			},
+			{
+				"fieldname": "custom_biometric_long_term",
+				"label": "Long-Term Effective User",
+				"fieldtype": "Check",
+				"default": "1",
+				"description": "User credentials on physical terminal never expire (1970 - 2037). Uncheck to enforce contract / relieving expiration.",
+				"insert_after": "custom_biometric_device_admin",
+			},
 		]
 	}
 	create_custom_fields(custom_fields, ignore_validate=True)
