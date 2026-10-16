@@ -261,13 +261,11 @@ def set_card_on_device(device, employee_no, card_no):
 
 
 def delete_card_from_device(device, card_no):
-    """Deletes an RFID card from the terminal."""
+    """Deletes an RFID card from the terminal (strictly HTTP PUT)."""
     url, auth = _get_device_auth_and_url(device, "ISAPI/AccessControl/CardInfo/Delete?format=json")
     payload = {"CardInfoDelCond": {"CardNoList": [{"cardNo": str(card_no).strip()}]}}
     try:
         resp = requests.put(url, auth=auth, json=payload, timeout=8, verify=False)
-        if resp.status_code not in (200, 204):
-            resp = requests.post(url, auth=auth, json=payload, timeout=8, verify=False)
         return {"status": "success" if resp.status_code in (200, 204) else "error", "details": resp.text[:200]}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -276,16 +274,24 @@ def delete_card_from_device(device, card_no):
 def delete_person_from_device(device, employee_no):
     """
     Deletes an employee from the terminal, instantly revoking all access.
+    Hikvision ISAPI UserInfo/Delete strictly requires HTTP PUT.
     """
     url, auth = _get_device_auth_and_url(device, "ISAPI/AccessControl/UserInfo/Delete?format=json")
     payload = {"UserInfoDelCond": {"EmployeeNoList": [{"employeeNo": str(employee_no)}]}}
     try:
         resp = requests.put(url, auth=auth, json=payload, timeout=8, verify=False)
-        if resp.status_code not in (200, 204):
-            resp = requests.post(url, auth=auth, json=payload, timeout=8, verify=False)
-
         if resp.status_code in (200, 204):
             return {"status": "success", "message": f"Employee {employee_no} removed from {device.name}."}
+
+        # If user does not exist on device, it is already clean
+        try:
+            err_json = resp.json()
+            sub_code = (err_json.get("subStatusCode") or "").lower()
+            if "notexist" in sub_code or "not exist" in sub_code:
+                return {"status": "success", "message": f"Employee {employee_no} was not on {device.name} (already clean)."}
+        except Exception:
+            pass
+
         return {"status": "error", "message": f"Delete returned HTTP {resp.status_code}: {resp.text[:200]}"}
     except Exception as e:
         return {"status": "error", "message": f"Failed to delete {employee_no} from {device.name}: {str(e)}"}
