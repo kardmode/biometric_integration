@@ -221,6 +221,63 @@ frappe.ui.form.on('Biometric Device', {
                     }
                 });
             }, __('Actions'));
+
+            frm.add_custom_button(__('Clean Orphan Users'), function() {
+                frappe.call({
+                    method: 'biometric_integration.biometric_integration.employee_sync.get_orphan_device_users',
+                    args: { device_name: frm.doc.name },
+                    freeze: true,
+                    freeze_message: __('Scanning terminal for orphan user IDs...'),
+                    callback: function(r) {
+                        if (!r.message || r.message.status !== 'success') return;
+                        const data = r.message;
+                        if (data.orphan_count === 0) {
+                            frappe.msgprint({
+                                title: __('No Orphan Users'),
+                                indicator: 'green',
+                                message: __('All <b>{0}</b> users on <b>{1}</b> match active employees or valid IDs in ERPNext.', [data.total_enrolled, frm.doc.name])
+                            });
+                            return;
+                        }
+
+                        let rows = data.orphans.map(o => `<tr><td><b>${frappe.utils.escape_html(o.employeeNo)}</b></td><td>${frappe.utils.escape_html(o.name || '-')}</td><td>${frappe.utils.escape_html(o.userType || 'normal')}</td></tr>`).join('');
+                        let html = `
+                            <p>${__('Found <b>{0}</b> user(s) on <b>{1}</b> that do not exist in ERPNext:', [data.orphan_count, frm.doc.name])}</p>
+                            <div style="max-height: 250px; overflow-y: auto; margin-bottom: 15px;">
+                                <table class="table table-bordered table-condensed">
+                                    <thead><tr><th>${__('Terminal ID')}</th><th>${__('Name')}</th><th>${__('Type')}</th></tr></thead>
+                                    <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                            <p class="text-danger small"><i class="fa fa-exclamation-triangle"></i> ${__('Removing these IDs will permanently delete their biometrics and access credentials from this physical terminal.')}</p>
+                        `;
+
+                        frappe.confirm(
+                            html,
+                            function() {
+                                frappe.call({
+                                    method: 'biometric_integration.biometric_integration.employee_sync.cleanup_orphan_device_users',
+                                    args: {
+                                        device_name: frm.doc.name,
+                                        user_ids: JSON.stringify(data.orphans.map(o => o.employeeNo))
+                                    },
+                                    freeze: true,
+                                    freeze_message: __('Deleting orphan users from terminal...'),
+                                    callback: function(del_res) {
+                                        if (del_res.message) {
+                                            frappe.msgprint({
+                                                title: __('Orphan Cleanup Complete'),
+                                                indicator: 'green',
+                                                message: del_res.message.message
+                                            });
+                                        }
+                                    }
+                                });
+                            }
+                        );
+                    }
+                });
+            }, __('Actions'));
         }
     }
 });

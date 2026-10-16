@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import re
+import json
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
@@ -9,6 +10,7 @@ from biometric_integration.biometric_integration.hikvision_isapi import (
     sync_person_to_device,
     delete_person_from_device,
     get_enrolled_user_count,
+    get_enrolled_users,
     download_face_image_from_device,
     upload_face_image_to_device
 )
@@ -394,6 +396,110 @@ def fetch_enrolled_user_count(device_name):
     device = frappe.get_doc("Biometric Device", device_name)
     count = get_enrolled_user_count(device)
     return {"status": "success", "enrolled_users": count}
+
+
+@frappe.whitelist()
+def get_orphan_device_users(device_name):
+    """
+    Compares users enrolled on the physical terminal with ERPNext records.
+    Returns a list of orphan users present on hardware but not recognized in ERPNext.
+    """
+    device = frappe.get_doc("Biometric Device", device_name)
+    terminal_users = get_enrolled_users(device)
+
+    # Build ERPNext whitelist:
+    # 1. All employees (Active, etc.) - check attendance ID, enrolled ID, and document name
+    employees = frappe.get_all(
+        "Employee",
+        fields=["name", "attendance_device_id", "custom_biometric_device_enrolled_id"]
+    )
+    whitelist_ids = set()
+    for e in employees:
+        if e.get("attendance_device_id"):
+            whitelist_ids.add(sanitize_hardware_id(e.attendance_device_id))
+        if e.get("custom_biometric_device_enrolled_id"):
+            whitelist_ids.add(sanitize_hardware_id(e.custom_biometric_device_enrolled_id))
+        if e.get("name"):
+            whitelist_ids.add(sanitize_hardware_id(e.name))
+
+    # 2. Also check Visitor Passes if table exists
+    if frappe.db.table_exists("Biometric Visitor Pass"):
+        passes = frappe.get_all(
+            "Biometric Visitor Pass",
+            filters={"docstatus": 1, "status": "Active"},
+            pluck="visitor_device_id"
+        )
+        for vp in passes:
+            if vp:
+                whitelist_ids.add(sanitize_hardware_id(vp))
+
+    # Identify orphans
+    orphans = []
+    for tu in terminal_users:
+        emp_no = tu.get("employeeNo")
+        if emp_no and emp_no not in whitelist_ids:
+            orphans.append(tu)
+
+    return {
+        "status": "success",
+        "total_enrolled": len(terminal_users),
+        "orphan_count": len(orphans),
+        "orphans": orphans
+    }
+
+
+@frappe.whitelist()
+def cleanup_orphan_device_users(device_name, user_ids=None):
+    """
+    Deletes the specified orphan user IDs from the terminal.
+    Safe: double-checks each ID against active ERPNext employees before deletion.
+    """
+    if isinstance(user_ids, str):
+        try:
+            user_ids = json.loads(user_ids)
+        except Exception:
+            user_ids = [u.strip() for u in user_ids.split(",") if u.strip()]
+
+    device = frappe.get_doc("Biometric Device", device_name)
+
+    if not user_ids:
+        # Detect all orphans automatically
+        res = get_orphan_device_users(device_name)
+        user_ids = [u["employeeNo"] for u in res.get("orphans", [])]
+
+    if not user_ids:
+        return {"status": "info", "message": _("No orphan users found on {0}.").format(device_name)}
+
+    # Ensure none of the IDs belong to active employees (safety whitelist)
+    emp_ids = set(frappe.get_all("Employee", filters={"status": "Active"}, pluck="attendance_device_id"))
+    emp_ids.update(frappe.get_all("Employee", filters={"status": "Active"}, pluck="custom_biometric_device_enrolled_id"))
+    emp_ids.update(frappe.get_all("Employee", filters={"status": "Active"}, pluck="name"))
+    safe_emp_ids = {sanitize_hardware_id(i) for i in emp_ids if i}
+
+    deleted = []
+    skipped_protected = []
+    errors = []
+
+    for uid in user_ids:
+        clean_uid = sanitize_hardware_id(uid)
+        if clean_uid in safe_emp_ids:
+            skipped_protected.append(clean_uid)
+            continue
+        del_res = delete_person_from_device(device, clean_uid)
+        if del_res.get("status") == "success":
+            deleted.append(clean_uid)
+        else:
+            errors.append(f"{clean_uid}: {del_res.get('message')}")
+
+    msg = _("Cleaned up {0} orphan user(s) on {1}.").format(len(deleted), device_name)
+    if deleted:
+        msg += f"<br>Removed IDs: <b>{', '.join(deleted)}</b>"
+    if skipped_protected:
+        msg += f"<br><span class='text-warning'>Skipped {len(skipped_protected)} ID(s) matching active employees.</span>"
+    if errors:
+        msg += f"<br><span class='text-danger'>Errors: {', '.join(errors)}</span>"
+
+    return {"status": "success", "message": msg, "deleted_count": len(deleted)}
 
 
 # -------------------------------------------------------------

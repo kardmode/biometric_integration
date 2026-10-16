@@ -94,6 +94,53 @@ def get_enrolled_user_count(device):
     return 0
 
 
+def get_enrolled_users(device, max_users=1000):
+    """
+    Fetches the list of enrolled users from the terminal via ISAPI UserInfo/Search.
+    Returns a list of dicts: [{'employeeNo': '...', 'name': '...', 'userType': '...'}, ...]
+    """
+    search_url, auth = _get_device_auth_and_url(device, "ISAPI/AccessControl/UserInfo/Search?format=json")
+    all_users = []
+    position = 0
+    batch_size = 50
+
+    while position < max_users:
+        payload = {
+            "UserInfoSearchCond": {
+                "searchID": "search-enrolled-users",
+                "searchResultPosition": position,
+                "maxResults": batch_size
+            }
+        }
+        try:
+            resp = requests.post(search_url, auth=auth, json=payload, timeout=10, verify=False)
+            if resp.status_code != 200:
+                break
+            data = resp.json().get("UserInfoSearch", {})
+            users = data.get("UserInfo", [])
+            if not users:
+                break
+            if isinstance(users, dict):
+                users = [users]
+            for u in users:
+                emp_no = str(u.get("employeeNo", "")).strip()
+                if emp_no:
+                    all_users.append({
+                        "employeeNo": emp_no,
+                        "name": str(u.get("name", "")).strip(),
+                        "userType": u.get("userType", "normal")
+                    })
+            total = int(data.get("totalMatches", len(all_users)))
+            position += len(users)
+            if position >= total or len(users) < batch_size:
+                break
+        except Exception as e:
+            logger.error(f"Failed to search enrolled users on {device.name}: {e}")
+            break
+
+    return all_users
+
+
 def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="normal", user_role="normal", is_admin=False, is_long_term=True, valid_from=None, valid_to=None, max_times=None, tz_name=None, plan_template_no=1, **kwargs):
     """
     Builds the standard UserInfo dict for Hikvision ISAPI.

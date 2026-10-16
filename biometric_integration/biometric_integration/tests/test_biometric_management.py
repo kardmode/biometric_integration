@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 if "frappe" not in sys.modules:
     mock_frappe = MagicMock()
     mock_frappe._ = lambda x: x
+    mock_frappe.whitelist = lambda *args, **kwargs: (lambda fn: fn)
     def _mock_throw(msg, *args, **kwargs):
         raise ValueError(str(msg))
     mock_frappe.throw = _mock_throw
@@ -820,6 +821,74 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
 
         validate_employee_access_roles(emp_doc)
         self.assertEqual(emp_doc.attendance_device_id, "EMP0045")
+
+    @patch("biometric_integration.biometric_integration.hikvision_isapi.requests.post")
+    def test_get_enrolled_users(self, mock_post):
+        """Validates searching all enrolled users from the terminal via ISAPI."""
+        from biometric_integration.biometric_integration.hikvision_isapi import get_enrolled_users
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "UserInfoSearch": {
+                "totalMatches": 2,
+                "numOfMatches": 2,
+                "UserInfo": [
+                    {"employeeNo": "1", "name": "Legacy Admin", "userType": "normal"},
+                    {"employeeNo": "EMP0005", "name": "New Staff", "userType": "normal"}
+                ]
+            }
+        }
+        mock_post.return_value = mock_resp
+
+        dev = MockDevice()
+        users = get_enrolled_users(dev)
+        self.assertEqual(len(users), 2)
+        self.assertEqual(users[0]["employeeNo"], "1")
+        self.assertEqual(users[1]["employeeNo"], "EMP0005")
+
+    @patch("biometric_integration.biometric_integration.employee_sync.delete_person_from_device")
+    @patch("biometric_integration.biometric_integration.employee_sync.get_enrolled_users")
+    def test_orphan_user_detection_and_cleanup(self, mock_get_users, mock_delete):
+        """Orphan detection flags terminal users that do not exist in ERPNext, and cleanup deletes them safely."""
+        from biometric_integration.biometric_integration.employee_sync import get_orphan_device_users, cleanup_orphan_device_users
+        import frappe
+
+        mock_get_users.return_value = [
+            {"employeeNo": "1", "name": "Orphan User"},
+            {"employeeNo": "EMP0005", "name": "Active Employee"}
+        ]
+        mock_delete.return_value = {"status": "success"}
+
+        # Mock ERPNext employees: only EMP0005 exists
+        mock_emp = MagicMock()
+        mock_emp.name = "EMP0005"
+        mock_emp.attendance_device_id = "EMP0005"
+        mock_emp.custom_biometric_device_enrolled_id = "EMP0005"
+        mock_emp.get = lambda k: getattr(mock_emp, k, None)
+
+        orig_get_all = frappe.get_all
+        orig_get_doc = frappe.get_doc
+        orig_table_exists = frappe.db.table_exists
+
+        frappe.get_all = MagicMock(return_value=[mock_emp])
+        frappe.get_doc = MagicMock(return_value=MockDevice())
+        frappe.db.table_exists = MagicMock(return_value=False)
+
+        try:
+            # 1. Detection
+            res = get_orphan_device_users("Front Door MinMoe")
+            self.assertEqual(res["orphan_count"], 1)
+            self.assertEqual(res["orphans"][0]["employeeNo"], "1")
+
+            # 2. Cleanup
+            clean_res = cleanup_orphan_device_users("Front Door MinMoe", user_ids=["1"])
+            self.assertEqual(clean_res["deleted_count"], 1)
+            mock_delete.assert_called_once()
+        finally:
+            frappe.get_all = orig_get_all
+            frappe.get_doc = orig_get_doc
+            frappe.db.table_exists = orig_table_exists
 
 
 if __name__ == "__main__":
