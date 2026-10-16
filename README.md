@@ -113,6 +113,83 @@ bench --site <site_name> clear-cache
 
 ---
 
+## 🌐 Remote Cloud & Local Network Connectivity (Tailscale Subnet Router)
+
+In many enterprise deployments, **ERPNext is hosted in the cloud or on a remote VPS**, while biometric terminals and smart relays reside on a **local office or factory LAN** behind a firewall without a public static IP or port forwarding.
+
+You can securely bridge your cloud ERPNext server directly to your local devices using a **Tailscale Subnet Router**. This creates an encrypted, zero-trust tunnel directly from your cloud server into your local network.
+
+```
+┌─────────────────────────┐         Tailscale Encrypted Mesh         ┌──────────────────────────────┐
+│  Remote Cloud Server    │ ═════════════════════════════════════════ │ Local Subnet Router Machine  │
+│  (ERPNext / Frappe)     │                                          │ (Windows PC or Raspberry Pi) │
+│  Tailscale: 100.x.y.z   │                                          │ IP: 192.168.70.173           │
+└─────────────────────────┘                                          └──────────────┬───────────────┘
+                                                                                    │ Local LAN / Wi-Fi
+                                                                     ┌──────────────┴───────────────┐
+                                                                     │ Local Biometric Hardware     │
+                                                                     │ (Hikvision / ZKTeco / Relay) │
+                                                                     │ IP: 192.168.70.X             │
+                                                                     └──────────────────────────────┘
+```
+
+### Setup Instructions
+
+#### 1. Setup Local Subnet Router (Windows PC on the same LAN as Devices)
+
+1. **Enable Windows IP Forwarding**: Open **PowerShell as Administrator** and allow Windows to forward packets between interfaces:
+   ```powershell
+   Set-NetIPInterface -InterfaceAlias "Wi-Fi" -Forwarding Enabled
+   Set-NetIPInterface -InterfaceAlias "Tailscale" -Forwarding Enabled
+   ```
+   *(If your PC is connected via Ethernet instead of Wi-Fi, replace `"Wi-Fi"` with `"Ethernet"`).*
+
+2. **Advertise Your Subnet or Device IP**:
+   - To expose the entire local subnet:
+     ```powershell
+     tailscale set --advertise-routes=192.168.70.0/24
+     ```
+   - *Or* to expose only the specific biometric device:
+     ```powershell
+     tailscale set --advertise-routes=192.168.70.X/32
+     ```
+
+3. **Approve Route in Tailscale Admin Console**:
+   - Go to [Tailscale Admin Machines](https://login.tailscale.com/admin/machines).
+   - Find your subnet router machine $\rightarrow$ click `...` $\rightarrow$ **Edit route settings...**.
+   - Check the box to approve the advertised route and click **Save**.
+
+---
+
+#### 2. Configure Remote ERPNext Server (Linux)
+
+1. **Accept Subnet Routes**: On your remote Linux ERPNext host, enable route acceptance:
+   ```bash
+   sudo tailscale set --accept-routes=true
+   ```
+   *(Verify with `ip route | grep 192.168.70` — you will see the subnet routed via `dev tailscale0`).*
+
+2. **Test Connectivity**:
+   ```bash
+   # Test TCP port connectivity to the biometric device (HTTP 80 / 8000 for Hikvision, 4370 for ZKTeco)
+   nc -zvw3 192.168.70.X 80
+   ```
+
+---
+
+#### 3. Dedicated Always-On Appliance (Recommended for Production)
+For production environments where a personal laptop shouldn't need to stay awake 24/7, deploy a lightweight **Raspberry Pi** or local mini-PC as a permanent subnet router:
+```bash
+# Enable IPv4 forwarding on Linux appliance
+echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.d/99-tailscale.conf
+sudo sysctl -p /etc/sysctl.d/99-tailscale.conf
+
+# Advertise the local network
+sudo tailscale up --advertise-routes=192.168.70.0/24
+```
+
+---
+
 ## 🧪 Automated Test Suite
 The app includes a comprehensive test suite covering all ISAPI payloads, time validations, multi-terminal face sync, and security permissions:
 
