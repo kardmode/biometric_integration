@@ -304,6 +304,15 @@ def sync_all_active_employees_to_device(device_name):
         ]
     )
 
+    # Pre-fetch physical access roles for all active employees
+    role_map = {}
+    try:
+        roles = frappe.get_all("Biometric Employee Access Role", filters={"parenttype": "Employee"}, fields=["parent", "access_role"])
+        for r in roles:
+            role_map.setdefault(r.parent, []).append({"access_role": r.access_role})
+    except Exception:
+        role_map = {}
+
     synced_count = 0
     skipped_count = 0
     errors = []
@@ -312,6 +321,8 @@ def sync_all_active_employees_to_device(device_name):
         if emp_data.get("custom_biometric_exempt"):
             skipped_count += 1
             continue
+
+        emp_data["custom_biometric_access_roles"] = role_map.get(emp_data.name, [])
 
         emp_no = sanitize_hardware_id(emp_data.get("attendance_device_id") or emp_data.get("name"))
         enrolled_id = sanitize_hardware_id(emp_data.get("custom_biometric_device_enrolled_id"))

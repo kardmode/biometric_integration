@@ -87,8 +87,8 @@ def setup_custom_fields():
 				"fieldname": "custom_biometric_device_enrolled_id",
 				"label": "Enrolled Device ID",
 				"fieldtype": "Data",
-				"read_only": 1,
-				"description": "Active hardware ID currently provisioned on physical biometric terminals",
+				"read_only": 0,
+				"description": "Active hardware ID currently provisioned on physical biometric terminals (editable for legacy migrations)",
 				"insert_after": "custom_biometric_last_synced",
 			},
 			{
@@ -141,5 +141,11 @@ def setup_custom_fields():
 			UPDATE `tabCustom Field`
 			SET permlevel = 0
 			WHERE dt = 'Employee'
-			  AND fieldname IN ('custom_biometric_access_roles', 'custom_biometric_blacklisted', 'custom_biometric_device_admin')
+			  AND fieldname IN ('custom_biometric_access_roles', 'custom_biometric_blacklisted', 'custom_biometric_device_admin', 'custom_biometric_long_term', 'custom_biometric_device_enrolled_id')
+		""")
+		frappe.db.sql("""
+			UPDATE `tabCustom Field`
+			SET read_only = 0
+			WHERE dt = 'Employee'
+			  AND fieldname = 'custom_biometric_device_enrolled_id'
 		""")
