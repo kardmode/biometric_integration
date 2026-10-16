@@ -94,16 +94,16 @@ def get_enrolled_user_count(device):
     return 0
 
 
-def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="normal", user_role="normal", is_long_term=True, valid_from=None, valid_to=None, max_times=None, tz_name=None, plan_template_no=1):
+def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="normal", user_role="normal", is_admin=False, is_long_term=True, valid_from=None, valid_to=None, max_times=None, tz_name=None, plan_template_no=1, **kwargs):
     """
     Builds the standard UserInfo dict for Hikvision ISAPI.
     user_type: "normal", "visitor", "blackList"
-    user_role: "normal", "admin"
-    is_long_term: if True, sets beginTime to 1970 and endTime to 2037 (never expires on hardware)
+    is_admin / user_role: "admin" -> sets localUIRight: True (on-screen local terminal administrator)
+    is_long_term: if True, sets beginTime to 2000-01-01 and endTime to 2037-12-31 (never expires on hardware)
     """
     now = datetime.now()
     if is_long_term:
-        default_begin = datetime(1970, 1, 1, 0, 0, 0)
+        default_begin = datetime(2000, 1, 1, 0, 0, 0)
         default_end = datetime(2037, 12, 31, 23, 59, 59)
     else:
         default_begin = now
@@ -121,12 +121,14 @@ def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="n
     begin_str = fix_tz(begin_str)
     end_str = fix_tz(end_str)
 
+    has_admin_rights = bool(is_admin or user_role == "admin" or kwargs.get("is_device_admin"))
+
     user_info = {
         "employeeNo": str(employee_no),
         "name": str(name)[:32],  # Hikvision name limit
-        "userType": user_type,
-        "userRole": user_role,
+        "userType": user_type or "normal",
         "closeDelayEnabled": False,
+        "localUIRight": has_admin_rights,
         "Valid": {
             "enable": True,
             "beginTime": begin_str,
@@ -146,7 +148,7 @@ def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="n
     return user_info
 
 
-def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, door_no=1, user_type="normal", user_role="normal", is_long_term=True, valid_from=None, valid_to=None, face_image_bytes=None, plan_template_no=1):
+def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, door_no=1, user_type="normal", user_role="normal", is_admin=False, is_long_term=True, valid_from=None, valid_to=None, face_image_bytes=None, plan_template_no=1, **kwargs):
     """
     Safely syncs employee info to a Hikvision terminal.
     
@@ -158,13 +160,15 @@ def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, doo
     if not device.ip or not device.username:
         return {"status": "error", "message": f"Device {device.name} is missing IP or credentials."}
 
+    has_admin = bool(is_admin or user_role == "admin" or kwargs.get("is_device_admin"))
+
     user_payload = build_user_info_payload(
         employee_no=employee_no,
         name=name,
         pin=pin,
         door_no=door_no,
         user_type=user_type,
-        user_role=user_role,
+        is_admin=has_admin,
         is_long_term=is_long_term,
         valid_from=valid_from,
         valid_to=valid_to,
@@ -191,10 +195,10 @@ def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, doo
             res_data = resp.json()
             status_str = (res_data.get("subStatusCode") or res_data.get("statusString") or "").lower()
             # If status string indicates person doesn't exist, proceed to Record
-            if "notexist" not in status_str and "not exist" not in status_str:
+            if "notexist" not in status_str and "not exist" not in status_str and res_data.get("statusCode") == 1:
                 user_exists = True
 
-        # 2. If user does not exist, use UserInfo/Record (Create)
+        # 2. If user does not exist, use UserInfo/Record (Create via POST)
         if not user_exists:
             action_taken = "created"
             resp = requests.post(
@@ -204,15 +208,6 @@ def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, doo
                 timeout=10,
                 verify=False
             )
-            if resp.status_code not in (200, 204):
-                # Try PUT on Record (some older firmware uses PUT)
-                resp = requests.put(
-                    record_url,
-                    auth=auth,
-                    json={"UserInfo": user_payload},
-                    timeout=10,
-                    verify=False
-                )
 
         if resp.status_code not in (200, 204):
             return {

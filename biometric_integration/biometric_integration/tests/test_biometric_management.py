@@ -693,7 +693,7 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
         validate_employee_access_roles(emp_doc)
 
     def test_build_user_info_blacklist_and_admin_payload(self):
-        """UserInfo payload properly includes userType=blackList and userRole=admin."""
+        """UserInfo payload properly includes userType=blackList and localUIRight=True."""
         payload = build_user_info_payload(
             employee_no="1005",
             name="Restricted Person",
@@ -702,10 +702,10 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
             tz_name="UTC"
         )
         self.assertEqual(payload["userType"], "blackList")
-        self.assertEqual(payload["userRole"], "admin")
+        self.assertTrue(payload["localUIRight"])
 
     def test_build_user_info_long_term_vs_validity_period(self):
-        """Long-term user sets 1970-2037 bounds, while non-long-term enforces strict dates."""
+        """Long-term user sets 2000-2037 bounds, while non-long-term enforces strict dates."""
         # 1. Long term user (default)
         payload_long = build_user_info_payload(
             employee_no="2001",
@@ -713,7 +713,7 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
             is_long_term=True,
             tz_name="UTC"
         )
-        self.assertIn("1970-01-01", payload_long["Valid"]["beginTime"])
+        self.assertIn("2000-01-01", payload_long["Valid"]["beginTime"])
         self.assertIn("2037-12-31", payload_long["Valid"]["endTime"])
 
         # 2. Contractor with specific validity period
