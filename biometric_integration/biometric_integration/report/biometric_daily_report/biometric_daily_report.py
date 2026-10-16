@@ -33,13 +33,12 @@ def execute(filters=None):
     
     columns[0]["label"] = formatted_date
     
-    # Get all active employees with attendance device IDs, employment type, and default shift
+    # Get all active employees with attendance device IDs and default shift
     all_active_employees = frappe.db.sql("""
         SELECT 
             name as employee,
             employee_name,
             attendance_device_id,
-            employment_type,
             default_shift
         FROM 
             tabEmployee
@@ -51,13 +50,12 @@ def execute(filters=None):
             attendance_device_id
     """, as_dict=True)
     
-    # Get employees who had at least one punch that day with employment type and default shift
+    # Get employees who had at least one punch that day with default shift
     present_employees = frappe.db.sql("""
         SELECT DISTINCT 
             e.name as employee,
             e.employee_name,
             e.attendance_device_id,
-            e.employment_type,
             e.default_shift
         FROM `tabEmployee Checkin` ec
         JOIN `tabEmployee` e ON e.name = ec.employee
@@ -139,7 +137,7 @@ def execute(filters=None):
                 return shift_type_map[emp_def]
         return None
 
-    def check_early_leave_present(first_punch_time, last_punch_time, employee_id, employment_type=None, emp_doc_name=None, default_shift=None):
+    def check_early_leave_present(first_punch_time, last_punch_time, employee_id, emp_doc_name=None, default_shift=None):
         """
         For present employees only.
         Checks leave_to against first punch, leave_from against last punch.
@@ -151,7 +149,7 @@ def execute(filters=None):
         emp_id = str(employee_id)
         leave_entry = leave_log_map.get(emp_id)
 
-        # Dynamic shift lookup: Dated Shift Assignment -> Employee.default_shift -> Shift Type matching name
+        # Dynamic shift lookup: Dated Shift Assignment -> Employee.default_shift
         shift_data = get_employee_shift_data(emp_doc_name, default_shift)
         expected_end = None
         shift_end_tolerance = 30 * 60
@@ -162,12 +160,6 @@ def execute(filters=None):
             expected_end = parse_time_to_seconds(end_t)
             if shift_data.get("early_exit_grace_period"):
                 shift_end_tolerance = int(shift_data["early_exit_grace_period"]) * 60
-        elif employment_type and employment_type in shift_type_map:
-            st = shift_type_map[employment_type]
-            if st.get("end_time"):
-                expected_end = parse_time_to_seconds(st["end_time"])
-                if st.get("early_exit_grace_period"):
-                    shift_end_tolerance = int(st["early_exit_grace_period"]) * 60
 
         # If no shift is found, we cannot determine when they should have left, so return empty (no penalty flag)
         if expected_end is None:
@@ -221,9 +213,9 @@ def execute(filters=None):
 
         return " | ".join(parts)
 
-    def check_early_leave_absent(employee_id, employment_type=None, emp_doc_name=None, default_shift=None):
+    def check_early_leave_absent(employee_id, emp_doc_name=None, default_shift=None):
         shift_data = get_employee_shift_data(emp_doc_name, default_shift)
-        if not shift_data and (not employment_type or employment_type not in shift_type_map):
+        if not shift_data:
             return ""
 
         emp_id = str(employee_id)
@@ -355,7 +347,7 @@ def execute(filters=None):
                 if actual_punches:
                     first_punch = actual_punches[0]["punch_time"]
                     last_punch = actual_punches[-1]["punch_time"]
-                    early_leave_status = check_early_leave_present(first_punch, last_punch, employee.attendance_device_id, employee.employment_type, employee.get("employee"), employee.get("default_shift"))
+                    early_leave_status = check_early_leave_present(first_punch, last_punch, employee.attendance_device_id, employee.get("employee"), employee.get("default_shift"))
                     row_data["early_leave"] = early_leave_status
                     
                     # Highlight red for everything except pure "1"
@@ -417,7 +409,7 @@ def execute(filters=None):
         absent_row["employee_name"] = employee.employee_name
         absent_row["employee_id"] = employee.attendance_device_id
 
-        early_leave_status = check_early_leave_absent(employee.attendance_device_id, employee.employment_type, employee.get("employee"), employee.get("default_shift"))
+        early_leave_status = check_early_leave_absent(employee.attendance_device_id, employee.get("employee"), employee.get("default_shift"))
         absent_row["early_leave"] = early_leave_status
 
         for i in range(1, max_punches + 1):
