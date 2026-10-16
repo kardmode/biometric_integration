@@ -60,7 +60,18 @@ def find_employee(employee_id_or_device_id):
     if emp:
         return emp
 
-    # 4. If raw is numeric (e.g. 1 or 001), check if Employee name ends with that number pattern
+    # 4. Alphanumeric stripped match on Employee name (e.g. device sends 'NDVHREMP00001' and name is 'NDV-HR-EMP-00001', or 'EMP0001' and 'EMP/0001')
+    emp_match = frappe.db.sql("""
+        SELECT name, employee_name, attendance_device_id
+        FROM `tabEmployee`
+        WHERE status = 'Active'
+          AND REPLACE(REPLACE(REPLACE(name, '-', ''), '/', ''), '_', '') = %s
+        LIMIT 1
+    """, (raw,), as_dict=True)
+    if emp_match:
+        return emp_match[0]
+
+    # 5. If raw is numeric (e.g. 1 or 001), check if Employee name ends with that number pattern
     # e.g. HR-EMP-00001 or EMP-001 or custom naming series
     if raw.isdigit():
         emp_match = frappe.db.sql("""

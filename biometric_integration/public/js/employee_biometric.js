@@ -105,5 +105,20 @@ frappe.ui.form.on('Employee', {
                 );
             }
         }
+    },
+
+    attendance_device_id(frm) {
+        if (frm.doc.attendance_device_id) {
+            const raw = frm.doc.attendance_device_id;
+            const cleaned = raw.replace(/[^a-zA-Z0-9]/g, '');
+            if (raw !== cleaned) {
+                frm.set_value('attendance_device_id', cleaned);
+                frappe.show_alert({
+                    message: __('Hardware Terminal ID sanitized: special characters removed ({0} &rarr; {1})', [raw, cleaned]),
+                    indicator: 'blue'
+                });
+            }
+        }
     }
 });
+

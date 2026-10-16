@@ -772,8 +772,32 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
         self.assertIn("Duress Alarm", args[1]["title"])
         self.assertEqual(args[1]["device"], "Main Vault Door")
 
+    def test_sanitize_hardware_id(self):
+        """Validates that hardware IDs are cleaned to strictly alphanumeric characters."""
+        from biometric_integration.biometric_integration.employee_sync import sanitize_hardware_id
+
+        self.assertEqual(sanitize_hardware_id("NDV-HR-EMP-00001"), "NDVHREMP00001")
+        self.assertEqual(sanitize_hardware_id("EMP/0001"), "EMP0001")
+        self.assertEqual(sanitize_hardware_id("EMP_1234"), "EMP1234")
+        self.assertEqual(sanitize_hardware_id("1"), "1")
+        self.assertEqual(sanitize_hardware_id("  ABC-999 / 2  "), "ABC9992")
+        self.assertEqual(sanitize_hardware_id(None), "")
+
+    def test_auto_sanitize_on_employee_validate(self):
+        """Employee.validate automatically cleans attendance_device_id to alphanumeric."""
+        from biometric_integration.biometric_integration.employee_sync import validate_employee_access_roles
+
+        emp_doc = MagicMock()
+        emp_doc.attendance_device_id = "EMP/0045"
+        emp_doc.is_new.return_value = False
+        emp_doc.has_value_changed.return_value = False
+
+        validate_employee_access_roles(emp_doc)
+        self.assertEqual(emp_doc.attendance_device_id, "EMP0045")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

@@ -1,6 +1,7 @@
 # Copyright (c) 2026, NDV and contributors
 # For license information, please see license.txt
 
+import re
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
@@ -11,6 +12,19 @@ from biometric_integration.biometric_integration.hikvision_isapi import (
     download_face_image_from_device,
     upload_face_image_to_device
 )
+
+
+def sanitize_hardware_id(id_val):
+    """
+    Sanitizes an employee or attendance device ID to conform strictly to Hikvision hardware limits:
+    - Alphanumeric characters only [A-Za-z0-9]
+    - Strips hyphens (-), slashes (/), underscores (_), spaces, and special symbols
+    - e.g. 'NDV-HR-EMP-00001' -> 'NDVHREMP00001'
+    - e.g. 'EMP/0001' -> 'EMP0001'
+    """
+    if not id_val:
+        return ""
+    return re.sub(r'[^A-Za-z0-9]', '', str(id_val).strip())
 
 
 def get_employee_face_bytes(employee_doc_or_dict):
@@ -66,7 +80,8 @@ def fetch_face_from_device(employee_name, device_name=None):
     and saves it to the Employee doctype under custom_biometric_face_image.
     """
     emp = frappe.get_doc("Employee", employee_name)
-    emp_no = emp.attendance_device_id or emp.name
+    emp_no = sanitize_hardware_id(emp.attendance_device_id or emp.name)
+    enrolled_id = sanitize_hardware_id(emp.get("custom_biometric_device_enrolled_id"))
 
     if device_name:
         devices = [frappe.get_doc("Biometric Device", device_name)]
@@ -86,6 +101,9 @@ def fetch_face_from_device(employee_name, device_name=None):
         if not dev.ip or not dev.username:
             continue
         data, err = download_face_image_from_device(dev, emp_no)
+        # Fallback to enrolled_id if ID was recently changed in ERPNext
+        if not data and enrolled_id and enrolled_id != emp_no:
+            data, err = download_face_image_from_device(dev, enrolled_id)
         if data:
             img_bytes = data
             source_device = dev
@@ -132,9 +150,9 @@ def sync_employee_to_devices(employee_name):
     if emp.get("custom_biometric_exempt"):
         return {"status": "warning", "message": _("Employee {0} is marked as exempt from biometric sync.").format(emp.name)}
 
-    # Determine desired hardware ID
-    emp_no = str(emp.attendance_device_id or emp.name).strip()
-    enrolled_id = str(emp.get("custom_biometric_device_enrolled_id") or "").strip()
+    # Determine desired hardware ID (strictly alphanumeric for Hikvision hardware)
+    emp_no = sanitize_hardware_id(emp.attendance_device_id or emp.name)
+    enrolled_id = sanitize_hardware_id(emp.get("custom_biometric_device_enrolled_id"))
     emp_name = emp.employee_name or emp.name
     card_no = emp.get("custom_biometric_card_no")
     pin = emp.get("custom_biometric_pin")
@@ -222,8 +240,8 @@ def remove_employee_from_devices(employee_name):
     Wipes both current desired ID and previous enrolled ID.
     """
     emp = frappe.get_doc("Employee", employee_name)
-    emp_no = str(emp.attendance_device_id or emp.name).strip()
-    enrolled_id = str(emp.get("custom_biometric_device_enrolled_id") or "").strip()
+    emp_no = sanitize_hardware_id(emp.attendance_device_id or emp.name)
+    enrolled_id = sanitize_hardware_id(emp.get("custom_biometric_device_enrolled_id"))
 
     ids_to_remove = set()
     if emp_no:
@@ -285,8 +303,8 @@ def sync_all_active_employees_to_device(device_name):
             skipped_count += 1
             continue
 
-        emp_no = str(emp_data.get("attendance_device_id") or emp_data.get("name")).strip()
-        enrolled_id = str(emp_data.get("custom_biometric_device_enrolled_id") or "").strip()
+        emp_no = sanitize_hardware_id(emp_data.get("attendance_device_id") or emp_data.get("name"))
+        enrolled_id = sanitize_hardware_id(emp_data.get("custom_biometric_device_enrolled_id"))
         emp_name = emp_data.get("employee_name") or emp_data.get("name")
         card_no = emp_data.get("custom_biometric_card_no")
         pin = emp_data.get("custom_biometric_pin")
@@ -358,9 +376,17 @@ def fetch_enrolled_user_count(device_name):
 def on_employee_update(doc, method):
     """
     Triggered when an Employee document is saved/updated in ERPNext.
+    - Auto-populates attendance_device_id from naming series if left empty.
     - If status changed to Left / Inactive / Suspended -> revoke device credentials.
     - If active and not exempt -> automatically sync credentials.
     """
+    # Auto-populate attendance_device_id from doc.name if left empty on creation
+    if not doc.get("attendance_device_id") and doc.name:
+        clean_id = sanitize_hardware_id(doc.name)
+        if clean_id:
+            doc.db_set("attendance_device_id", clean_id)
+            doc.attendance_device_id = clean_id
+
     # Check if doc has custom fields before running (in case migration not yet run)
     if not hasattr(doc, "custom_biometric_sync_status"):
         return
@@ -396,7 +422,16 @@ def validate_employee_access_roles(doc, method=None):
     - Physical door access roles (custom_biometric_access_roles)
     - Hardware blacklist flag (custom_biometric_blacklisted)
     - Hardware device administrator flag (custom_biometric_device_admin)
+    Also automatically sanitizes attendance_device_id to alphanumeric characters.
     """
+    # Auto-sanitize attendance_device_id to alphanumeric characters [A-Za-z0-9]
+    if doc.get("attendance_device_id"):
+        clean_id = sanitize_hardware_id(doc.attendance_device_id)
+        if clean_id != doc.attendance_device_id:
+            doc.attendance_device_id = clean_id
+    elif doc.name and not doc.is_new():
+        doc.attendance_device_id = sanitize_hardware_id(doc.name)
+
     if not hasattr(frappe, "session") or not getattr(frappe.session, "user", None):
         return
 
