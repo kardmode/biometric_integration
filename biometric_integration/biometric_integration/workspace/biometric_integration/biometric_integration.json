@@ -90,6 +90,30 @@
    "link_to": "door-control",
    "stats_filter": "[]",
    "type": "Page"
+  },
+  {
+   "color": "Purple",
+   "doc_view": "List",
+   "label": "Access Roles",
+   "link_to": "Biometric Access Role",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "List",
+   "label": "Access Shifts",
+   "link_to": "Biometric Access Shift",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Yellow",
+   "doc_view": "List",
+   "label": "Visitor Passes",
+   "link_to": "Biometric Visitor Pass",
+   "stats_filter": "[]",
+   "type": "DocType"
   }
  ],
  "title": "Biometric Integration",

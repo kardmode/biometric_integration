@@ -117,7 +117,7 @@
    "icon": "",
    "indent": 0,
    "keep_closed": 0,
-   "label": "Settings",
+   "label": "Access Control",
    "link_type": "DocType",
    "show_arrow": 0,
    "type": "Section Break"
@@ -131,6 +131,66 @@
    "label": "Biometric Devices",
    "link_to": "Biometric Device",
    "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "shield",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Access Roles",
+   "link_to": "Biometric Access Role",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "clock",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Access Shifts",
+   "link_to": "Biometric Access Shift",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "user-check",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Visitor Passes",
+   "link_to": "Biometric Visitor Pass",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "file-text",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Door Access Logs",
+   "link_to": "Door Access Log",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "lock",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Door Control",
+   "link_to": "door-control",
+   "link_type": "Page",
    "show_arrow": 0,
    "type": "Link"
   }
