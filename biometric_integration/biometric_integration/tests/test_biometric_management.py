@@ -59,6 +59,12 @@ class MockDevice:
     def get_password(self, fieldname):
         return self._password
 
+    def get(self, fieldname, default=None):
+        return getattr(self, fieldname, default)
+
+    def db_set(self, fieldname, value):
+        setattr(self, fieldname, value)
+
 
 class TestHikvisionUserAndCredentialManagement(unittest.TestCase):
     def setUp(self):
@@ -377,6 +383,26 @@ class TestDoorScheduleAndAccessMode(unittest.TestCase):
         mock_put.assert_called_once()
         call_url = mock_put.call_args[0][0]
         self.assertIn("AccessControl/OpenStatusPlan/door/1", call_url)
+
+    @patch("frappe.get_doc")
+    @patch("requests.put")
+    def test_sync_door_open_schedule_with_free_passage_shift(self, mock_put, mock_get_doc):
+        """Tests that sync_door_open_schedule resolves rows from linked free_passage_shift."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_put.return_value = mock_resp
+
+        mock_shift = MagicMock()
+        mock_shift.get.return_value = [
+            {"idx": 1, "day_of_week": "Friday", "start_time": "08:00:00", "end_time": "12:00:00"}
+        ]
+        mock_get_doc.return_value = mock_shift
+
+        self.device.enable_free_passage = 1
+        self.device.free_passage_shift = "Friday Half Day"
+        res = sync_door_open_schedule(self.device)
+        self.assertEqual(res["status"], "success")
+        mock_get_doc.assert_called_with("Biometric Access Shift", "Friday Half Day")
 
     @patch("requests.put")
     def test_set_door_hardware_mode(self, mock_put):

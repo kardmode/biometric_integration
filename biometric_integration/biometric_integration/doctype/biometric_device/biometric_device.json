@@ -42,7 +42,7 @@
   "allowed_employees",
   "door_schedule_section",
   "enable_free_passage",
-  "door_open_schedule",
+  "free_passage_shift",
   "schedule_sync_status",
   "schedule_last_synced",
   "webhook_section",
@@ -301,11 +301,12 @@
   },
   {
    "depends_on": "eval:doc.enable_access_control && doc.enable_free_passage",
-   "description": "Configure time intervals during which the door remains unlocked. Supports split daily hours (e.g. 09:00-14:00 and 16:00-19:00). Max 8 intervals per day.",
-   "fieldname": "door_open_schedule",
-   "fieldtype": "Table",
-   "label": "Door Open Schedule Intervals",
-   "options": "Biometric Door Schedule Item"
+   "description": "Select the Biometric Access Shift to use as the weekly door open / free passage schedule",
+   "fieldname": "free_passage_shift",
+   "fieldtype": "Link",
+   "label": "Door Open Schedule Shift",
+   "mandatory_depends_on": "eval:doc.enable_access_control && doc.enable_free_passage",
+   "options": "Biometric Access Shift"
   },
   {
    "depends_on": "eval:doc.enable_access_control",

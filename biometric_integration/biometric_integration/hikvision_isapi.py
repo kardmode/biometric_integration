@@ -647,7 +647,17 @@ def sync_door_open_schedule(device, schedule_rows=None, enable=None, door_no=1):
         return {"status": "error", "message": f"Device {device.name} is missing IP or credentials."}
 
     if schedule_rows is None:
-        schedule_rows = device.get("door_open_schedule") or []
+        if hasattr(device, "get_door_schedule_rows"):
+            schedule_rows = device.get_door_schedule_rows()
+        elif hasattr(device, "get") and device.get("free_passage_shift"):
+            try:
+                import frappe
+                shift = frappe.get_doc("Biometric Access Shift", device.get("free_passage_shift"))
+                schedule_rows = shift.get("schedule_items") or []
+            except Exception:
+                schedule_rows = device.get("door_open_schedule") or []
+        else:
+            schedule_rows = device.get("door_open_schedule") or []
 
     if enable is None:
         enable = bool(device.enable_free_passage)

@@ -51,10 +51,24 @@ class BiometricDevice(Document):
     def validate(self):
         self.validate_door_schedule_settings()
 
+    def get_door_schedule_rows(self):
+        """Returns schedule rows from linked free_passage_shift or fallback door_open_schedule."""
+        shift_name = getattr(self, "free_passage_shift", None) or self.get("free_passage_shift")
+        if shift_name:
+            import frappe
+            try:
+                shift = frappe.get_doc("Biometric Access Shift", shift_name)
+                return shift.get("schedule_items") or []
+            except Exception:
+                pass
+        return self.get("door_open_schedule") or []
+
     def validate_door_schedule_settings(self):
         """Strictly validates door open schedule times and intervals."""
-        schedule_rows = self.get("door_open_schedule") or []
         enable_schedule = bool(getattr(self, "enable_free_passage", False))
+        if enable_schedule and not self.get("free_passage_shift") and not self.get("door_open_schedule"):
+            frappe.throw(frappe._("Please select a Door Open Schedule Shift (Biometric Access Shift) for Free Passage mode."))
+        schedule_rows = self.get_door_schedule_rows()
         validate_door_schedule(schedule_rows, enable_free_passage=enable_schedule)
 
     @frappe.whitelist()
