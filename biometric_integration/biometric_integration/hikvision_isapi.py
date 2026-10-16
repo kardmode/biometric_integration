@@ -130,7 +130,7 @@ def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="n
         "closeDelayEnabled": False,
         "localUIRight": has_admin_rights,
         "Valid": {
-            "enable": True,
+            "enable": not bool(is_long_term),
             "beginTime": begin_str,
             "endTime": end_str,
             "timeType": "local"

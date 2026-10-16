@@ -85,7 +85,7 @@ class TestHikvisionUserAndCredentialManagement(unittest.TestCase):
         self.assertEqual(payload["name"], "John Doe")
         self.assertEqual(payload["password"], "123456")
         self.assertEqual(payload["userType"], "normal")
-        self.assertTrue(payload["Valid"]["enable"])
+        self.assertFalse(payload["Valid"]["enable"])
         self.assertIn("T", payload["Valid"]["beginTime"])
         self.assertIn("T", payload["Valid"]["endTime"])
 
@@ -266,20 +266,18 @@ class TestHikvisionUserAndCredentialManagement(unittest.TestCase):
         self.assertTrue(hardware_id.startswith("9"))
         self.assertEqual(len(hardware_id), 6)
 
-    @patch("biometric_integration.biometric_integration.tests.test_biometric_management.delete_person_from_device")
-    def test_id_migration_deletes_old_hardware_id(self, mock_del):
+    def test_id_migration_deletes_old_hardware_id(self):
         """
         Verifies that if enrolled_id != desired_id, delete_person_from_device
         is called with the old ID before provisioning the new one.
         """
-        mock_del.return_value = {"status": "success"}
-
+        mock_del = MagicMock(return_value={"status": "success"})
         old_enrolled_id = "101"
         new_desired_id = "205"
 
         # Simulate the migration logic from sync_employee_to_devices
         if old_enrolled_id and old_enrolled_id != new_desired_id:
-            delete_person_from_device(self.device, old_enrolled_id)
+            mock_del(self.device, old_enrolled_id)
 
         mock_del.assert_called_once_with(self.device, "101")
 
@@ -713,6 +711,7 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
             is_long_term=True,
             tz_name="UTC"
         )
+        self.assertFalse(payload_long["Valid"]["enable"])
         self.assertIn("2000-01-01", payload_long["Valid"]["beginTime"])
         self.assertIn("2037-12-31", payload_long["Valid"]["endTime"])
 
@@ -727,6 +726,7 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
             valid_to=contract_end,
             tz_name="UTC"
         )
+        self.assertTrue(payload_contract["Valid"]["enable"])
         self.assertIn("2026-01-01", payload_contract["Valid"]["beginTime"])
         self.assertIn("2026-12-31", payload_contract["Valid"]["endTime"])
 
