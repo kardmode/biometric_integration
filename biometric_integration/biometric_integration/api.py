@@ -5,6 +5,7 @@ import json
 import frappe
 from datetime import datetime
 from frappe import _
+from frappe.utils import now_datetime
 from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin, find_employee
 
 
@@ -74,12 +75,54 @@ def _parse_xml_hikvision_event(xml_text):
                 mac_addr = node.text.strip()
                 break
 
-        if emp_no and time_str:
+        major_type = None
+        for tag in ("majorEventType", "major"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                try:
+                    major_type = int(node.text.strip())
+                    break
+                except Exception:
+                    pass
+
+        sub_type = None
+        for tag in ("subEventType", "minor"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                try:
+                    sub_type = int(node.text.strip())
+                    break
+                except Exception:
+                    pass
+
+        event_type = None
+        for tag in ("eventType", "event"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                event_type = node.text.strip()
+                break
+
+        event_desc = None
+        for tag in ("eventDescription", "description"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                event_desc = node.text.strip()
+                break
+
+        if (emp_no and time_str) or (time_str and (event_type or sub_type is not None or major_type is not None)) or (event_type or sub_type is not None):
             res = {
                 "employeeNoString": emp_no,
-                "time": time_str,
+                "time": time_str or now_datetime().isoformat(),
                 "devName": dev_name or "Hikvision Terminal"
             }
+            if major_type is not None:
+                res["majorEventType"] = major_type
+            if sub_type is not None:
+                res["subEventType"] = sub_type
+            if event_type:
+                res["eventType"] = event_type
+            if event_desc:
+                res["eventDescription"] = event_desc
             if ip_addr:
                 res["ipAddress"] = ip_addr
             if mac_addr:
@@ -118,6 +161,124 @@ def _extract_device_info_from_xml(xml_text):
         return info
     except Exception:
         return {}
+
+
+def classify_alarm_event(ev):
+    """
+    Checks if an event payload represents a physical or biometric security alarm:
+    - Duress Alarm (subEventType 67 or 'duress')
+    - Blacklist Scan Attempt (subEventType 68 or 'blacklist')
+    - Tamper Alarm (subEventType 72 or 'tamper')
+    - Door Forced Open (subEventType 39 or 'forced')
+    - Door Held Open Alert (subEventType 73 or 'open timeout' / 'held open')
+    Returns a tuple (status, method, alarm_details) or None if normal event.
+    """
+    if not isinstance(ev, dict):
+        return None
+
+    sub_ev = ev.get("AccessControllerEvent") or ev.get("AcsEvent") or ev
+    if not isinstance(sub_ev, dict):
+        sub_ev = ev
+
+    sub_type = None
+    for k in ("subEventType", "subType", "minor"):
+        val = sub_ev.get(k) or ev.get(k)
+        if val is not None:
+            try:
+                sub_type = int(val)
+                break
+            except Exception:
+                pass
+
+    desc = str(
+        sub_ev.get("eventDescription")
+        or sub_ev.get("eventType")
+        or ev.get("eventDescription")
+        or ev.get("eventType")
+        or ""
+    ).lower()
+
+    # 1. Duress Alarm (Duress PIN or Duress Card)
+    if sub_type == 67 or "duress" in desc:
+        return ("Duress Alarm", "Duress PIN", "Duress alarm triggered at terminal")
+
+    # 2. Blacklist Scan Attempt
+    if sub_type == 68 or "blacklist" in desc or "black list" in desc:
+        return ("Blacklist Attempt", "Blacklist Scan", "Blacklisted individual scan attempt detected")
+
+    # 3. Tamper Alarm (Case opened, device dismantled)
+    if sub_type == 72 or "tamper" in desc:
+        return ("Tamper Alarm", "Tamper Sensor", "Physical tamper sensor triggered on device casing")
+
+    # 4. Door Forced Open
+    if sub_type == 39 or "forced" in desc or "force" in desc:
+        return ("Door Forced Open", "Door Position Sensor", "Door forced open without authorized unlock")
+
+    # 5. Door Held Open Alert / Timeout
+    if sub_type == 73 or "held open" in desc or "timeout" in desc or "timed out" in desc:
+        return ("Door Held Open Alert", "Door Position Sensor", "Door held open beyond permitted time limit")
+
+    return None
+
+
+def notify_security_alarm(device_name, status, details, timestamp, employee_name=None):
+    """
+    Sends real-time UI notification and creates system Notification Log alerts for managers.
+    """
+    subject = f"[SECURITY ALARM] {status} at {device_name}"
+    full_details = details
+    if employee_name:
+        full_details += f" (Subject: {employee_name})"
+
+    # 1. Real-time WebSocket event
+    try:
+        frappe.publish_realtime(
+            "biometric_security_alarm",
+            {
+                "title": f"SECURITY ALERT: {status}",
+                "device": device_name,
+                "status": status,
+                "details": full_details,
+                "timestamp": str(timestamp)
+            }
+        )
+    except Exception:
+        pass
+
+    # 2. Immutable security log in Error Log
+    try:
+        frappe.log_error(
+            title=subject,
+            message=f"Timestamp: {timestamp}\nDevice: {device_name}\nStatus: {status}\nDetails: {full_details}"
+        )
+    except Exception:
+        pass
+
+    # 3. Notification Log entry for System Managers and HR Managers
+    try:
+        if frappe.db.table_exists("Notification Log"):
+            recipients = frappe.get_all(
+                "Has Role",
+                filters={"role": ["in", ["System Manager", "HR Manager"]], "parenttype": "User"},
+                pluck="parent"
+            )
+            for user in set(recipients) - {"Administrator", "Guest"}:
+                try:
+                    notif = frappe.new_doc("Notification Log")
+                    notif.for_user = user
+                    notif.type = "Alert"
+                    notif.subject = subject
+                    notif.email_content = (
+                        f"<b>Device:</b> {device_name}<br>"
+                        f"<b>Status:</b> <span style='color:red;'><b>{status}</b></span><br>"
+                        f"<b>Details:</b> {full_details}<br>"
+                        f"<b>Timestamp:</b> {timestamp}"
+                    )
+                    notif.insert(ignore_permissions=True)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 
 @frappe.whitelist(allow_guest=True)
@@ -282,14 +443,16 @@ def hikvision_event_receiver():
                 }
 
             ace = events_data.get("AccessControllerEvent", {}) if isinstance(events_data.get("AccessControllerEvent"), dict) else events_data
-            # majorEventType 1, 2, 3 without employee (e.g. system status, tamper, door sensor 80)
+            # majorEventType 1, 2, 3 without employee (e.g. system status, door sensor 80)
             if ace.get("majorEventType") in (1, 2, 3) and not _find_val(events_data, ("employeeNoString", "employeeNo", "cardNo", "employee_no")):
-                return {
-                    "statusCode": 1,
-                    "statusString": "OK",
-                    "subStatusCode": "ok",
-                    "message": "System event acknowledged"
-                }
+                # Check if this is a security alarm before acknowledging!
+                if not classify_alarm_event(events_data):
+                    return {
+                        "statusCode": 1,
+                        "statusString": "OK",
+                        "subStatusCode": "ok",
+                        "message": "System event acknowledged"
+                    }
 
         if not events_data:
             frappe.local.response["http_status_code"] = 400
@@ -326,32 +489,95 @@ def hikvision_event_receiver():
             if not isinstance(ev, dict):
                 continue
 
+            # Check if this event is a security alarm (Duress, Tamper, Door Forced, Blacklist, Held Open)
+            alarm_info = classify_alarm_event(ev)
+
             # Recursive search for employee ID across all possible Hikvision key names
             emp_no = _find_val(ev, ("employeeNoString", "employeeNo", "cardNo", "employee_no"))
             # Recursive search for event timestamp
             event_timestamp = _find_val(ev, ("time", "dateTime", "eventTime", "recvTime"))
             dev_name = matched_dev_name or frappe.request.args.get("device") or _find_val(ev, ("deviceName", "devName", "devSerial", "macAddress")) or "Hikvision Terminal"
 
-            if not emp_no or not event_timestamp:
-                continue
-
             # Parse datetime
             event_datetime = None
-            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
-                try:
-                    event_datetime = datetime.strptime(str(event_timestamp)[:19], fmt)
-                    break
-                except Exception:
-                    pass
-
+            if event_timestamp:
+                for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
+                    try:
+                        event_datetime = datetime.strptime(str(event_timestamp)[:19], fmt)
+                        break
+                    except Exception:
+                        pass
             if not event_datetime:
+                event_datetime = now_datetime()
+
+            # 1. Handle Security Alarm
+            if alarm_info:
+                alarm_status, alarm_method, alarm_desc = alarm_info
+                emp_id = None
+                emp_name = None
+                if emp_no:
+                    emp = frappe.db.get_value("Employee", {"attendance_device_id": emp_no}, ["name", "employee_name"], as_dict=True)
+                    if not emp:
+                        emp = frappe.db.get_value("Employee", {"name": emp_no}, ["name", "employee_name"], as_dict=True)
+                    if emp:
+                        emp_id = emp.name
+                        emp_name = emp.employee_name
+
+                if frappe.db.table_exists("Door Access Log"):
+                    try:
+                        access_log = frappe.new_doc("Door Access Log")
+                        access_log.update({
+                            "device": matched_dev_name or dev_name,
+                            "timestamp": event_datetime,
+                            "status": alarm_status,
+                            "access_method": alarm_method,
+                            "employee": emp_id,
+                            "employee_name": emp_name,
+                            "card_id": str(emp_no) if emp_no else None,
+                            "details": f"{alarm_desc} on {matched_dev_name or dev_name}"
+                        })
+                        access_log.insert(ignore_permissions=True)
+                        processed += 1
+                    except Exception as e:
+                        frappe.log_error(f"Failed to create Door Access Log for alarm: {e}", "Biometric Integration")
+
+                notify_security_alarm(
+                    device_name=matched_dev_name or dev_name,
+                    status=alarm_status,
+                    details=alarm_desc,
+                    timestamp=event_datetime,
+                    employee_name=emp_name
+                )
+                continue
+
+            # Non-alarm events require emp_no and event_timestamp
+            if not emp_no or not event_timestamp:
                 continue
 
             enable_att = bool(matched_device.get("enable_attendance", 1)) if matched_device and "enable_attendance" in matched_device else True
             enable_acc = bool(matched_device.get("enable_access_control", 0)) if matched_device else False
 
-            # 1. Attendance Checkin
-            if enable_att:
+            # Check if this regular access event was Denied or Granted
+            sub_type = None
+            ace_ev = ev.get("AccessControllerEvent") if isinstance(ev.get("AccessControllerEvent"), dict) else ev
+            if ace_ev.get("subEventType") is not None:
+                try:
+                    sub_type = int(ace_ev.get("subEventType"))
+                except Exception:
+                    pass
+
+            is_denied = (sub_type in (2, 5, 75)) or ("fail" in str(ev.get("eventDescription") or "").lower()) or ("denied" in str(ev.get("eventDescription") or "").lower())
+            access_status = "Denied" if is_denied else "Granted"
+
+            # Determine access method
+            access_method = "Face Recognition"
+            if sub_type in (4, 5, 38) or ev.get("cardNo"):
+                access_method = "Keyfob / Card"
+            elif sub_type in (15,):
+                access_method = "Keypad PIN"
+
+            # Attendance Checkin (only for Granted access)
+            if enable_att and not is_denied:
                 checkin_id = create_employee_checkin(
                     emp_no,
                     event_datetime,
@@ -362,10 +588,12 @@ def hikvision_event_receiver():
                 if checkin_id:
                     processed += 1
 
-            # 2. Door Access Security Log
+            # Door Access Security Log
             if enable_acc and frappe.db.table_exists("Door Access Log"):
                 try:
                     emp = frappe.db.get_value("Employee", {"attendance_device_id": emp_no}, ["name", "employee_name"], as_dict=True)
+                    if not emp:
+                        emp = frappe.db.get_value("Employee", {"name": emp_no}, ["name", "employee_name"], as_dict=True)
                     emp_id = emp.name if emp else None
                     emp_name = emp.employee_name if emp else None
 
@@ -373,15 +601,15 @@ def hikvision_event_receiver():
                     access_log.update({
                         "device": matched_dev_name or dev_name,
                         "timestamp": event_datetime,
-                        "status": "Granted",
-                        "access_method": "Face Recognition",
+                        "status": access_status,
+                        "access_method": access_method,
                         "employee": emp_id,
                         "employee_name": emp_name,
                         "card_id": str(emp_no),
-                        "details": f"Authenticated at {dev_name}"
+                        "details": f"Authenticated at {dev_name} ({access_status})"
                     })
                     access_log.insert(ignore_permissions=True)
-                    if not enable_att:
+                    if not enable_att or is_denied:
                         processed += 1
                 except Exception:
                     pass

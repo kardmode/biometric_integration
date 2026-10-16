@@ -139,6 +139,10 @@ def sync_employee_to_devices(employee_name):
     card_no = emp.get("custom_biometric_card_no")
     pin = emp.get("custom_biometric_pin")
     face_bytes = get_employee_face_bytes(emp)
+    is_blacklisted = bool(emp.get("custom_biometric_blacklisted"))
+    is_admin = bool(emp.get("custom_biometric_device_admin"))
+    user_type = "blackList" if is_blacklisted else "normal"
+    user_role = "admin" if is_admin else "normal"
 
     target_devices = get_target_devices_for_employee(emp)
     if not target_devices:
@@ -175,6 +179,8 @@ def sync_employee_to_devices(employee_name):
             name=emp_name,
             card_no=card_no,
             pin=pin,
+            user_type=user_type,
+            user_role=user_role,
             face_image_bytes=face_bytes,
             plan_template_no=plan_no
         )
@@ -264,7 +270,9 @@ def sync_all_active_employees_to_device(device_name):
             "custom_biometric_card_no",
             "custom_biometric_pin",
             "custom_biometric_face_image",
-            "custom_biometric_exempt"
+            "custom_biometric_exempt",
+            "custom_biometric_blacklisted",
+            "custom_biometric_device_admin"
         ]
     )
 
@@ -283,6 +291,10 @@ def sync_all_active_employees_to_device(device_name):
         card_no = emp_data.get("custom_biometric_card_no")
         pin = emp_data.get("custom_biometric_pin")
         face_bytes = get_employee_face_bytes(emp_data)
+        is_blacklisted = bool(emp_data.get("custom_biometric_blacklisted"))
+        is_admin = bool(emp_data.get("custom_biometric_device_admin"))
+        user_type = "blackList" if is_blacklisted else "normal"
+        user_role = "admin" if is_admin else "normal"
 
         # Clean up old ID if changed
         if enrolled_id and enrolled_id != emp_no:
@@ -301,6 +313,8 @@ def sync_all_active_employees_to_device(device_name):
             name=emp_name,
             card_no=card_no,
             pin=pin,
+            user_type=user_type,
+            user_role=user_role,
             face_image_bytes=face_bytes,
             plan_template_no=plan_no
         )
@@ -378,8 +392,10 @@ def on_employee_trash(doc, method):
 
 def validate_employee_access_roles(doc, method=None):
     """
-    Enforces that only HR Manager or System Manager can assign or modify
-    physical door access roles (custom_biometric_access_roles).
+    Enforces that only HR Manager or System Manager can assign or modify:
+    - Physical door access roles (custom_biometric_access_roles)
+    - Hardware blacklist flag (custom_biometric_blacklisted)
+    - Hardware device administrator flag (custom_biometric_device_admin)
     """
     if not hasattr(frappe, "session") or not getattr(frappe.session, "user", None):
         return
@@ -388,18 +404,28 @@ def validate_employee_access_roles(doc, method=None):
     if user in ("Administrator", "System"):
         return
 
-    roles_changed = False
-    if doc.is_new():
-        if doc.get("custom_biometric_access_roles"):
-            roles_changed = True
-    else:
-        if doc.has_value_changed("custom_biometric_access_roles"):
-            roles_changed = True
+    restricted_fields = [
+        "custom_biometric_access_roles",
+        "custom_biometric_blacklisted",
+        "custom_biometric_device_admin"
+    ]
 
-    if roles_changed:
+    has_restricted_change = False
+    if doc.is_new():
+        for f in restricted_fields:
+            if doc.get(f):
+                has_restricted_change = True
+                break
+    else:
+        for f in restricted_fields:
+            if doc.has_value_changed(f):
+                has_restricted_change = True
+                break
+
+    if has_restricted_change:
         user_roles = set(frappe.get_roles(user))
         if not user_roles.intersection({"System Manager", "HR Manager"}):
             frappe.throw(
-                frappe._("Only HR Managers and System Managers are permitted to assign or modify Physical Door Access Roles."),
+                frappe._("Only HR Managers and System Managers are permitted to modify Physical Door Access Roles, Blacklist status, or Device Administrator privileges."),
                 frappe.PermissionError
             )

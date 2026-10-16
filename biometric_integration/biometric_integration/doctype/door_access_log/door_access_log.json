@@ -46,7 +46,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Granted\nDenied\nDoor Opened\nDoor Closed\nDoor Held Open Alert\nDoor Forced Open",
+   "options": "Granted\nDenied\nDoor Opened\nDoor Closed\nDoor Held Open Alert\nDoor Forced Open\nDuress Alarm\nTamper Alarm\nBlacklist Attempt",
    "reqd": 1
   },
   {
@@ -55,7 +55,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Method",
-   "options": "Face Recognition\nRemote Desk Unlock\nMobile Web Button\nRFID Phone Sticker\nKeyfob / Card\nNo-Touch IR Wave\nDoor Position Sensor\nManual Override\nSystem Timer"
+   "options": "Face Recognition\nRemote Desk Unlock\nMobile Web Button\nRFID Phone Sticker\nKeyfob / Card\nNo-Touch IR Wave\nDoor Position Sensor\nManual Override\nSystem Timer\nKeypad PIN\nDuress PIN\nTamper Sensor\nBlacklist Scan"
   },
   {
    "fieldname": "column_break_1",

@@ -663,6 +663,117 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
         mock_roles.return_value = ["HR Manager", "Employee"]
         validate_employee_access_roles(emp_doc)  # No exception
 
+    @patch("frappe.session")
+    @patch("frappe.get_roles")
+    def test_blacklist_and_device_admin_permission_restricted(self, mock_roles, mock_session):
+        """Non-managers cannot toggle blacklist or device admin checkboxes on Employee."""
+        from biometric_integration.biometric_integration.employee_sync import validate_employee_access_roles
+
+        emp_doc = MagicMock()
+        emp_doc.is_new.return_value = False
+
+        # 1. Non-manager toggling blacklist
+        emp_doc.has_value_changed.side_effect = lambda f: f == "custom_biometric_blacklisted"
+        mock_session.user = "unauthorized_user@example.com"
+        mock_roles.return_value = ["Employee"]
+
+        with self.assertRaises(Exception) as ctx:
+            validate_employee_access_roles(emp_doc)
+        self.assertIn("Only HR Managers and System Managers", str(ctx.exception))
+
+        # 2. Non-manager toggling device admin
+        emp_doc.has_value_changed.side_effect = lambda f: f == "custom_biometric_device_admin"
+        with self.assertRaises(Exception) as ctx:
+            validate_employee_access_roles(emp_doc)
+        self.assertIn("Only HR Managers and System Managers", str(ctx.exception))
+
+        # 3. System Manager toggling both passes cleanly
+        mock_session.user = "admin@example.com"
+        mock_roles.return_value = ["System Manager"]
+        validate_employee_access_roles(emp_doc)
+
+    def test_build_user_info_blacklist_and_admin_payload(self):
+        """UserInfo payload properly includes userType=blackList and userRole=admin."""
+        payload = build_user_info_payload(
+            employee_no="1005",
+            name="Restricted Person",
+            user_type="blackList",
+            user_role="admin",
+            tz_name="UTC"
+        )
+        self.assertEqual(payload["userType"], "blackList")
+        self.assertEqual(payload["userRole"], "admin")
+
+    def test_alarm_event_classification(self):
+        """Classify alarm event detects Duress, Blacklist, Tamper, Door Forced, and Held Open."""
+        from biometric_integration.biometric_integration.api import classify_alarm_event
+
+        # 1. Duress Alarm (subEventType 67)
+        res = classify_alarm_event({"AccessControllerEvent": {"subEventType": 67}})
+        self.assertIsNotNone(res)
+        self.assertEqual(res[0], "Duress Alarm")
+        self.assertEqual(res[1], "Duress PIN")
+
+        # 2. Blacklist Attempt (subEventType 68)
+        res = classify_alarm_event({"AccessControllerEvent": {"subEventType": 68}})
+        self.assertIsNotNone(res)
+        self.assertEqual(res[0], "Blacklist Attempt")
+        self.assertEqual(res[1], "Blacklist Scan")
+
+        # 3. Tamper Alarm (subEventType 72)
+        res = classify_alarm_event({"AccessControllerEvent": {"subEventType": 72}})
+        self.assertIsNotNone(res)
+        self.assertEqual(res[0], "Tamper Alarm")
+        self.assertEqual(res[1], "Tamper Sensor")
+
+        # 4. Door Forced Open (subEventType 39)
+        res = classify_alarm_event({"AccessControllerEvent": {"subEventType": 39}})
+        self.assertIsNotNone(res)
+        self.assertEqual(res[0], "Door Forced Open")
+        self.assertEqual(res[1], "Door Position Sensor")
+
+        # 5. Door Held Open Alert (subEventType 73)
+        res = classify_alarm_event({"AccessControllerEvent": {"subEventType": 73}})
+        self.assertIsNotNone(res)
+        self.assertEqual(res[0], "Door Held Open Alert")
+        self.assertEqual(res[1], "Door Position Sensor")
+
+        # 6. Description keyword match (e.g. "tamper")
+        res = classify_alarm_event({"eventDescription": "Device casing tamper alarm triggered"})
+        self.assertIsNotNone(res)
+        self.assertEqual(res[0], "Tamper Alarm")
+
+        # 7. Normal access event should return None
+        res = classify_alarm_event({"AccessControllerEvent": {"subEventType": 1, "majorEventType": 5}})
+        self.assertIsNone(res)
+
+    @patch("frappe.publish_realtime")
+    @patch("frappe.new_doc")
+    @patch("frappe.db.table_exists")
+    def test_alarm_notification_and_door_access_log(self, mock_table_exists, mock_new_doc, mock_publish):
+        """Alarms trigger realtime broadcast and create Door Access Log entry."""
+        from biometric_integration.biometric_integration.api import notify_security_alarm
+
+        mock_table_exists.return_value = True
+        mock_log = MagicMock()
+        mock_new_doc.return_value = mock_log
+
+        notify_security_alarm(
+            device_name="Main Vault Door",
+            status="Duress Alarm",
+            details="Duress PIN entered at terminal",
+            timestamp=datetime(2026, 10, 16, 20, 30, 0),
+            employee_name="John Doe"
+        )
+
+        mock_publish.assert_called_once()
+        args, kwargs = mock_publish.call_args
+        self.assertEqual(args[0], "biometric_security_alarm")
+        self.assertIn("Duress Alarm", args[1]["title"])
+        self.assertEqual(args[1]["device"], "Main Vault Door")
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

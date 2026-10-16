@@ -108,6 +108,24 @@ def setup_custom_fields():
 				"description": "Tag this employee with one or more physical access roles (e.g. Server Room, Warehouse, Main Gate)",
 				"insert_after": "custom_biometric_exempt",
 			},
+			{
+				"fieldname": "custom_biometric_blacklisted",
+				"label": "Blacklist on Hardware (Deny Entry)",
+				"fieldtype": "Check",
+				"default": "0",
+				"permlevel": 1,
+				"description": "Instantly block physical terminal access and trigger hardware alarms upon scan",
+				"insert_after": "custom_biometric_access_roles",
+			},
+			{
+				"fieldname": "custom_biometric_device_admin",
+				"label": "Hardware Device Administrator",
+				"fieldtype": "Check",
+				"default": "0",
+				"permlevel": 1,
+				"description": "Grant on-device local administrator menu access on physical terminal screens",
+				"insert_after": "custom_biometric_blacklisted",
+			},
 		]
 	}
 	create_custom_fields(custom_fields, ignore_validate=True)

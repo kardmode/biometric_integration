@@ -94,9 +94,11 @@ def get_enrolled_user_count(device):
     return 0
 
 
-def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="normal", valid_from=None, valid_to=None, max_times=None, tz_name=None, plan_template_no=1):
+def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="normal", user_role="normal", valid_from=None, valid_to=None, max_times=None, tz_name=None, plan_template_no=1):
     """
     Builds the standard UserInfo dict for Hikvision ISAPI.
+    user_type: "normal", "visitor", "blackList"
+    user_role: "normal", "admin"
     """
     now = datetime.now()
     begin_str = _format_iso_time(valid_from or now, tz_name)
@@ -116,6 +118,7 @@ def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="n
         "employeeNo": str(employee_no),
         "name": str(name)[:32],  # Hikvision name limit
         "userType": user_type,
+        "userRole": user_role,
         "closeDelayEnabled": False,
         "Valid": {
             "enable": True,
@@ -136,7 +139,7 @@ def build_user_info_payload(employee_no, name, pin=None, door_no=1, user_type="n
     return user_info
 
 
-def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, door_no=1, user_type="normal", valid_from=None, valid_to=None, face_image_bytes=None, plan_template_no=1):
+def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, door_no=1, user_type="normal", user_role="normal", valid_from=None, valid_to=None, face_image_bytes=None, plan_template_no=1):
     """
     Safely syncs employee info to a Hikvision terminal.
     
@@ -154,6 +157,7 @@ def sync_person_to_device(device, employee_no, name, card_no=None, pin=None, doo
         pin=pin,
         door_no=door_no,
         user_type=user_type,
+        user_role=user_role,
         valid_from=valid_from,
         valid_to=valid_to,
         tz_name=device.timezone,
