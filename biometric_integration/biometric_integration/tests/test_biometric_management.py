@@ -890,6 +890,55 @@ class TestBiometricAccessShiftAndTimeGating(unittest.TestCase):
             frappe.get_doc = orig_get_doc
             frappe.db.table_exists = orig_table_exists
 
+    @patch("biometric_integration.biometric_integration.employee_sync.remove_employee_from_devices")
+    def test_employee_update_left_does_not_revoke_immediately(self, mock_remove):
+        """Setting status to Left does not revoke credentials immediately on form save."""
+        from biometric_integration.biometric_integration.employee_sync import on_employee_update
+
+        emp = MagicMock()
+        emp.name = "EMP-001"
+        emp.status = "Left"
+        emp.custom_biometric_sync_status = "Synced"
+
+        on_employee_update(emp, None)
+        mock_remove.assert_not_called()
+
+        # Suspended status DOES immediately revoke for security
+        emp.status = "Suspended"
+        on_employee_update(emp, None)
+        mock_remove.assert_called_once_with("EMP-001")
+
+    @patch("biometric_integration.biometric_integration.employee_sync.remove_employee_from_devices")
+    def test_revoke_departed_employees_respects_leeway(self, mock_remove):
+        """Daily scheduler only revokes departed employees once leeway period has passed."""
+        from biometric_integration.biometric_integration.employee_sync import revoke_departed_employees
+        from datetime import date
+        import frappe
+
+        # Employee 1: Left 5 days ago (should be revoked)
+        emp_past = MagicMock()
+        emp_past.name = "EMP-PAST"
+        emp_past.relieving_date = date(2026, 10, 10)
+        emp_past.get = lambda k: getattr(emp_past, k, None)
+
+        # Employee 2: Leaving in the future (should NOT be revoked)
+        emp_future = MagicMock()
+        emp_future.name = "EMP-FUTURE"
+        emp_future.relieving_date = date(2026, 10, 20)
+        emp_future.get = lambda k: getattr(emp_future, k, None)
+
+        orig_get_all = frappe.get_all
+        frappe.get_all = MagicMock(return_value=[emp_past, emp_future])
+
+        # Mock today as 2026-10-16
+        with patch("frappe.utils.today", return_value="2026-10-16"):
+            try:
+                count = revoke_departed_employees(leeway_days=1)
+                self.assertEqual(count, 1)
+                mock_remove.assert_called_once_with("EMP-PAST")
+            finally:
+                frappe.get_all = orig_get_all
+
 
 if __name__ == "__main__":
     unittest.main()

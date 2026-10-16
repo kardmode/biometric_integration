@@ -175,6 +175,9 @@ scheduler_events = {
     },
     "hourly": [
         "biometric_integration.biometric_integration.doctype.biometric_visitor_pass.biometric_visitor_pass.expire_old_visitor_passes"
+    ],
+    "daily": [
+        "biometric_integration.biometric_integration.employee_sync.revoke_departed_employees"
     ]
 }
 # 	"all": [

@@ -524,8 +524,8 @@ def on_employee_update(doc, method):
     if not hasattr(doc, "custom_biometric_sync_status"):
         return
 
-    if doc.status in ("Left", "Suspended", "Inactive"):
-        # Auto-revoke physical access
+    if doc.status == "Suspended":
+        # Immediate security lockout for suspended employees
         try:
             remove_employee_from_devices(doc.name)
         except Exception as e:
@@ -536,6 +536,70 @@ def on_employee_update(doc, method):
             sync_employee_to_devices(doc.name)
         except Exception as e:
             frappe.log_error(f"Failed to auto-sync biometric access for {doc.name}: {str(e)}", "Biometric Integration")
+
+
+def revoke_departed_employees(leeway_days=1):
+    """
+    Scheduled daily job: safely removes credentials from physical terminals for employees
+    who have departed (status == 'Left') and whose relieving_date is at least `leeway_days` in the past.
+    This gives departing staff leeway to work and clock out on their final day without mid-day lockouts.
+    """
+    from frappe.utils import today, date_diff, getdate
+
+    departed_employees = frappe.get_all(
+        "Employee",
+        filters={
+            "status": "Left",
+            "custom_biometric_sync_status": "Synced"
+        },
+        fields=["name", "relieving_date", "modified"]
+    )
+
+    from datetime import date, datetime
+    try:
+        from frappe.utils import today
+        raw_today = today()
+        if isinstance(raw_today, str):
+            current_date = datetime.strptime(raw_today[:10], "%Y-%m-%d").date()
+        else:
+            current_date = date.today()
+    except Exception:
+        current_date = date.today()
+
+    revoked_count = 0
+
+    for emp in departed_employees:
+        # Determine effective departure date
+        ref_date = emp.relieving_date
+        if not ref_date and emp.get("modified"):
+            ref_date = emp.modified
+
+        if not ref_date:
+            continue
+
+        try:
+            if hasattr(ref_date, "date"):
+                ref_date = ref_date.date()
+            elif isinstance(ref_date, str):
+                from datetime import datetime
+                ref_date = datetime.strptime(str(ref_date)[:10], "%Y-%m-%d").date()
+
+            diff = (current_date - ref_date).days
+        except Exception:
+            continue
+
+        # Only revoke once the leeway period has elapsed past their relieving date
+        if diff >= leeway_days:
+            try:
+                remove_employee_from_devices(emp.name)
+                revoked_count += 1
+            except Exception as e:
+                frappe.log_error(f"Daily scheduler failed to revoke departed employee {emp.name}: {e}", "Biometric Integration")
+
+    if revoked_count > 0:
+        frappe.logger("biometric_integration").info(f"Daily cleanup revoked {revoked_count} departed employee(s) past relieving leeway.")
+
+    return revoked_count
 
 
 def on_employee_trash(doc, method):
