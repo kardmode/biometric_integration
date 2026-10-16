@@ -9,7 +9,8 @@ try:
     from frappe.model.document import Document
 except ImportError:
     class Document:
-        pass
+        def get(self, key, default=None):
+            return self.__dict__.get(key, default)
     def _(msg):
         return msg
 
@@ -21,9 +22,6 @@ from biometric_integration.biometric_integration.hikvision_isapi import (
 
 
 class BiometricAccessShift(Document):
-    def get(self, key, default=None):
-        val = getattr(self, key, default)
-        return val if val is not None else default
 
     def validate(self):
         # Validate Hikvision plan template number

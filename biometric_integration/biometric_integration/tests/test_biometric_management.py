@@ -15,7 +15,8 @@ if "frappe" not in sys.modules:
     sys.modules["frappe.utils"] = MagicMock()
     
     class DummyDoc:
-        pass
+        def get(self, key, default=None):
+            return getattr(self, key, default)
     mock_doc_module = MagicMock()
     mock_doc_module.Document = DummyDoc
     sys.modules["frappe.model.document"] = mock_doc_module
