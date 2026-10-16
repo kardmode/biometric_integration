@@ -295,6 +295,10 @@ class BiometricDevice(Document):
             if emp_roles.intersection(door_roles):
                 return True
 
+        # 4. If neither restricted roles nor employee overrides are configured, default to allowing active employees
+        if not door_roles and not allowed_emps:
+            return True
+
         return False
 
     def is_user_authorized(self, user=None, employee_doc=None):
