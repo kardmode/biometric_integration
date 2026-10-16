@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "autoname": "field:shift_name",
+ "creation": "2026-10-16 12:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "shift_name",
+  "hikvision_plan_no",
+  "column_break_1",
+  "description",
+  "schedule_section",
+  "schedule_items"
+ ],
+ "fields": [
+  {
+   "fieldname": "shift_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Shift / Schedule Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "description": "Hardware plan template slot number on Hikvision terminals (1 - 255)",
+   "fieldname": "hikvision_plan_no",
+   "fieldtype": "Int",
+   "label": "Hikvision Plan Template No",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Weekly Schedule Intervals"
+  },
+  {
+   "description": "Configure time intervals for each day of the week. Supports split hours (e.g. 09:00-14:00 and 16:00-19:00). Max 8 intervals per day.",
+   "fieldname": "schedule_items",
+   "fieldtype": "Table",
+   "label": "Schedule Intervals",
+   "options": "Biometric Door Schedule Item",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "links": [],
+ "modified": "2026-10-16 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Biometric Access Shift",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "HR User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "shift_name",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "shift_name"
+}

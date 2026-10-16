@@ -1,0 +1,42 @@
+{
+ "actions": [],
+ "creation": "2026-10-16 11:40:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "access_role",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "access_role",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Access Role",
+   "options": "Biometric Access Role",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "access_role.description",
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-16 11:40:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Biometric Employee Access Role",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

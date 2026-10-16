@@ -60,15 +60,64 @@ def _parse_xml_hikvision_event(xml_text):
                 dev_name = node.text.strip()
                 break
 
+        ip_addr = None
+        for tag in ("ipAddress", "ip", "deviceIp"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                ip_addr = node.text.strip()
+                break
+
+        mac_addr = None
+        for tag in ("macAddress", "mac"):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text:
+                mac_addr = node.text.strip()
+                break
+
         if emp_no and time_str:
-            return {
+            res = {
                 "employeeNoString": emp_no,
                 "time": time_str,
                 "devName": dev_name or "Hikvision Terminal"
             }
+            if ip_addr:
+                res["ipAddress"] = ip_addr
+            if mac_addr:
+                res["macAddress"] = mac_addr
+            return res
     except Exception:
         pass
     return None
+
+
+def _extract_device_info_from_xml(xml_text):
+    """Extracts device metadata (ipAddress, macAddress, serialNumber, devName) from raw XML."""
+    if not xml_text or not isinstance(xml_text, str) or "<" not in xml_text:
+        return {}
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_text)
+        for elem in root.iter():
+            if '}' in elem.tag:
+                elem.tag = elem.tag.split('}', 1)[1]
+        info = {}
+        for tag, key in (
+            ("ipAddress", "ip"),
+            ("macAddress", "mac_address"),
+            ("serialNumber", "device_serial_number"),
+            ("subSerialNumber", "device_serial_number"),
+            ("model", "model"),
+            ("deviceID", "device_id"),
+            ("deviceId", "device_id"),
+            ("deviceName", "device_name"),
+            ("devName", "device_name")
+        ):
+            node = root.find(f".//{tag}")
+            if node is not None and node.text and node.text.strip():
+                info[key] = node.text.strip()
+        return info
+    except Exception:
+        return {}
 
 
 @frappe.whitelist(allow_guest=True)
@@ -86,7 +135,7 @@ def hikvision_event_receiver():
             matched_device = frappe.db.get_value(
                 "Biometric Device",
                 {"webhook_secret_key": token, "enabled": 1},
-                ["name", "device_name", "device_direction", "punch_cooldown_minutes", "mac_address", "ip", "enable_attendance", "enable_access_control"],
+                ["name", "device_name", "device_direction", "punch_cooldown_minutes", "mac_address", "ip", "device_id", "device_serial_number", "model", "enable_attendance", "enable_access_control"],
                 as_dict=True
             )
 
@@ -147,6 +196,77 @@ def hikvision_event_receiver():
         if not events_data and hasattr(frappe.request, "get_json"):
             try:
                 events_data = frappe.request.get_json(silent=True)
+            except Exception:
+                pass
+
+        # Auto-track device local IP, MAC address, Serial Number, Model, and Device ID dynamically
+        detected_ip = None
+        detected_mac = None
+        detected_serial = None
+        detected_model = None
+        detected_device_id = None
+
+        if raw_text and "<" in raw_text:
+            xml_meta = _extract_device_info_from_xml(raw_text)
+            detected_ip = xml_meta.get("ip")
+            detected_mac = xml_meta.get("mac_address")
+            detected_serial = xml_meta.get("device_serial_number")
+            detected_model = xml_meta.get("model")
+            detected_device_id = xml_meta.get("device_id")
+
+        if isinstance(events_data, dict):
+            if not detected_ip:
+                detected_ip = _find_val(events_data, ("ipAddress", "ip", "deviceIp"))
+            if not detected_mac:
+                detected_mac = _find_val(events_data, ("macAddress", "mac", "mac_address"))
+            if not detected_serial:
+                detected_serial = _find_val(events_data, ("serialNumber", "deviceSerial", "devSerial", "subSerialNumber"))
+            if not detected_model:
+                detected_model = _find_val(events_data, ("model", "deviceModel"))
+            if not detected_device_id:
+                detected_device_id = _find_val(events_data, ("deviceID", "deviceId", "devId"))
+        elif isinstance(events_data, list) and events_data and isinstance(events_data[0], dict):
+            if not detected_ip:
+                detected_ip = _find_val(events_data[0], ("ipAddress", "ip", "deviceIp"))
+            if not detected_mac:
+                detected_mac = _find_val(events_data[0], ("macAddress", "mac", "mac_address"))
+            if not detected_serial:
+                detected_serial = _find_val(events_data[0], ("serialNumber", "deviceSerial", "devSerial", "subSerialNumber"))
+            if not detected_model:
+                detected_model = _find_val(events_data[0], ("model", "deviceModel"))
+            if not detected_device_id:
+                detected_device_id = _find_val(events_data[0], ("deviceID", "deviceId", "devId"))
+
+        if not detected_ip and hasattr(frappe.request, "remote_addr"):
+            detected_ip = frappe.request.remote_addr
+
+        if matched_device and matched_device.get("name"):
+            dev_updates = {}
+            if detected_ip and str(detected_ip).strip() and str(detected_ip).strip() != (matched_device.get("ip") or ""):
+                dev_updates["ip"] = str(detected_ip).strip()
+                matched_device["ip"] = str(detected_ip).strip()
+
+            if detected_mac and str(detected_mac).strip() and str(detected_mac).strip() != (matched_device.get("mac_address") or ""):
+                dev_updates["mac_address"] = str(detected_mac).strip()
+                matched_device["mac_address"] = str(detected_mac).strip()
+
+            if detected_serial and str(detected_serial).strip() and str(detected_serial).strip() != (matched_device.get("device_serial_number") or ""):
+                dev_updates["device_serial_number"] = str(detected_serial).strip()
+                matched_device["device_serial_number"] = str(detected_serial).strip()
+
+            if detected_model and str(detected_model).strip() and str(detected_model).strip() != (matched_device.get("model") or ""):
+                dev_updates["model"] = str(detected_model).strip()
+                matched_device["model"] = str(detected_model).strip()
+
+            if detected_device_id and str(detected_device_id).strip() and str(detected_device_id).strip() != (matched_device.get("device_id") or ""):
+                dev_updates["device_id"] = str(detected_device_id).strip()
+                matched_device["device_id"] = str(detected_device_id).strip()
+
+            dev_updates["status"] = "Online"
+            dev_updates["last_sync"] = frappe.utils.now_datetime()
+
+            try:
+                frappe.db.set_value("Biometric Device", matched_device["name"], dev_updates, update_modified=False)
             except Exception:
                 pass
 

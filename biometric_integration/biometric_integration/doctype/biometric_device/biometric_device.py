@@ -5,11 +5,19 @@ import frappe
 import requests
 from requests.auth import HTTPDigestAuth
 from datetime import datetime, timedelta
-import pytz
+try:
+    import pytz
+except ImportError:
+    pytz = None
 from frappe.utils import get_system_timezone, now_datetime
 from frappe.model.document import Document
 import xml.etree.ElementTree as ET
 from biometric_integration.biometric_integration.checkin_utils import create_employee_checkin
+from biometric_integration.biometric_integration.hikvision_isapi import (
+    validate_door_schedule,
+    sync_door_open_schedule,
+    set_door_hardware_mode
+)
 
 
 class BiometricDevice(Document):
@@ -22,14 +30,70 @@ class BiometricDevice(Document):
 
     def get_tz_offset(self):
         tz_name = self.timezone or get_system_timezone() or "UTC"
+        if pytz:
+            try:
+                tz = pytz.timezone(tz_name)
+                offset = datetime.now(tz).strftime("%z")
+                if len(offset) == 5:
+                    return f"{offset[:3]}:{offset[3:]}"
+            except Exception:
+                pass
         try:
-            tz = pytz.timezone(tz_name)
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(tz_name)
             offset = datetime.now(tz).strftime("%z")
             if len(offset) == 5:
                 return f"{offset[:3]}:{offset[3:]}"
         except Exception:
             pass
         return "+00:00"
+
+    def validate(self):
+        self.validate_door_schedule_settings()
+
+    def validate_door_schedule_settings(self):
+        """Strictly validates door open schedule times and intervals."""
+        schedule_rows = self.get("door_open_schedule") or []
+        enable_schedule = bool(getattr(self, "enable_free_passage", False))
+        validate_door_schedule(schedule_rows, enable_free_passage=enable_schedule)
+
+    @frappe.whitelist()
+    def sync_door_schedule(self):
+        """Pushes door open (free passage) schedule to Hikvision terminal."""
+        if not self.enable_access_control:
+            frappe.throw(frappe._("Access Control is not enabled for this device."))
+        res = sync_door_open_schedule(self)
+        if res.get("status") == "error":
+            frappe.throw(res.get("message"))
+        return res
+
+    @frappe.whitelist()
+    def set_door_mode(self, command):
+        """Sets hardware door mode (open, alwaysOpen, alwaysClose, resume)."""
+        if not self.enable_access_control:
+            frappe.throw(frappe._("Access Control is not enabled for this device."))
+
+        invoker = frappe.session.user
+        res = set_door_hardware_mode(self, command)
+        if res.get("status") == "error":
+            frappe.throw(res.get("message"))
+
+        # Log action to Door Access Log
+        if frappe.db.table_exists("Door Access Log"):
+            try:
+                log = frappe.new_doc("Door Access Log")
+                log.update({
+                    "device": self.name,
+                    "timestamp": now_datetime(),
+                    "status": "Granted",
+                    "access_method": f"Door Mode: {command}",
+                    "details": f"Door mode '{command}' set by {invoker}"
+                })
+                log.insert(ignore_permissions=True)
+            except Exception:
+                pass
+
+        return res
 
     def before_save(self):
         import secrets
@@ -77,45 +141,153 @@ class BiometricDevice(Document):
             # Never block saving the record.
             self.status = "Offline"
 
-    def is_user_authorized(self, user=None, employee_doc=None):
+    def is_remote_user_authorized(self, user=None, return_reason=False, dt_obj=None):
         """
-        Validates if the user or employee has authorization for this device / door.
+        Validates if a Frappe User has permission to trigger remote desk unlock.
+        Checks Frappe User and Role permissions, gated by assigned Biometric Access Shift time intervals.
+        Administrator and System Manager are exempt (24/7 access).
         """
         user = user or frappe.session.user
 
-        # 1. System Manager and HR Manager always have access
+        # 1. Administrator and System Manager always have 24/7 emergency access
+        if user == "Administrator":
+            return (True, None) if return_reason else True
         user_roles = set(frappe.get_roles(user))
-        if "System Manager" in user_roles or "HR Manager" in user_roles:
-            return True
+        if "System Manager" in user_roles:
+            return (True, None) if return_reason else True
 
-        # Resolve employee
+        # Helper to check shift time
+        def check_shift(shift_name):
+            if not shift_name:
+                return True, None  # No shift set = 24/7 access
+            try:
+                shift_doc = frappe.get_cached_doc("Biometric Access Shift", shift_name)
+                is_active, msg = shift_doc.is_active_now(dt_obj=dt_obj)
+                return is_active, msg
+            except Exception:
+                return True, None
+
+        # 2. Check specifically allowed Frappe Users
+        matched_user_shifts = []
+        user_matched = False
+        for u in self.get("remote_allowed_users") or []:
+            if getattr(u, "user", None) == user:
+                user_matched = True
+                shift_name = getattr(u, "access_shift", None)
+                active, msg = check_shift(shift_name)
+                if active:
+                    return (True, None) if return_reason else True
+                matched_user_shifts.append(msg)
+
+        if user_matched and matched_user_shifts:
+            reason = f"User '{user}' is not permitted to remotely unlock outside their assigned shift ({matched_user_shifts[0]})"
+            return (False, reason) if return_reason else False
+
+        # 3. Check allowed Frappe Roles
+        matched_role_shifts = []
+        role_matched = False
+        for r in self.get("remote_allowed_roles") or []:
+            role_name = getattr(r, "role", None)
+            if role_name and role_name in user_roles:
+                role_matched = True
+                shift_name = getattr(r, "access_shift", None)
+                active, msg = check_shift(shift_name)
+                if active:
+                    return (True, None) if return_reason else True
+                matched_role_shifts.append((role_name, msg))
+
+        if role_matched and matched_role_shifts:
+            reasons = "; ".join([f"{r}: {m}" for r, m in matched_role_shifts])
+            reason = f"Remote unlock outside allowed hours ({reasons})"
+            return (False, reason) if return_reason else False
+
+        reason = "User is not authorized for remote unlock on this door."
+        return (False, reason) if return_reason else False
+
+    def get_employee_plan_template_no(self, employee_doc):
+        """
+        Determines the Hikvision planTemplateNo for an authorized employee.
+        Checks matching allowed_employees or allowed_access_roles row for an access_shift.
+        """
+        emp_name = employee_doc.get("name") if hasattr(employee_doc, "get") else getattr(employee_doc, "name", None)
+
+        # 1. Check direct employee override row
+        for e in self.get("allowed_employees") or []:
+            if getattr(e, "employee", None) == emp_name:
+                shift_name = getattr(e, "access_shift", None)
+                if shift_name:
+                    return self._get_plan_no_from_shift(shift_name)
+
+        # 2. Check matching access role row
+        door_role_map = {r.access_role: getattr(r, "access_shift", None) for r in self.get("allowed_access_roles") or [] if getattr(r, "access_role", None)}
+        if door_role_map:
+            emp_roles = employee_doc.get("custom_biometric_access_roles") or []
+            for r in emp_roles:
+                r_name = r.get("access_role") if hasattr(r, "get") else getattr(r, "access_role", None)
+                if r_name in door_role_map:
+                    shift_name = door_role_map[r_name]
+                    if shift_name:
+                        return self._get_plan_no_from_shift(shift_name)
+
+        return 1
+
+    def _get_plan_no_from_shift(self, shift_name):
+        try:
+            return frappe.db.get_value("Biometric Access Shift", shift_name, "hikvision_plan_no") or 1
+        except Exception:
+            return 1
+
+    def is_employee_physically_authorized(self, employee_doc=None, employee_name=None):
+        """
+        Validates if an Employee has physical access authorization to be provisioned
+        on this physical biometric terminal (Face, Card, PIN).
+        """
         emp = employee_doc
-        if not emp and user != "Guest":
-            emp = frappe.db.get_value(
-                "Employee",
-                {"user_id": user},
-                ["name", "employee_name", "status"],
-                as_dict=True
-            )
+        if not emp and employee_name:
+            emp = frappe.get_doc("Employee", employee_name)
 
-        if not emp or emp.get("status") != "Active":
+        if not emp:
             return False
 
-        # 2. If open to all active employees
-        if self.allow_all_active_employees:
+        # Status must be Active
+        status = emp.get("status") if hasattr(emp, "get") else getattr(emp, "status", None)
+        if status != "Active":
+            return False
+
+        # Exemption check
+        is_exempt = emp.get("custom_biometric_exempt") if hasattr(emp, "get") else getattr(emp, "custom_biometric_exempt", 0)
+        if is_exempt:
+            return False
+
+        # 1. Open to all active employees on this physical terminal
+        if getattr(self, "allow_all_active_employees", False):
             return True
 
-        # 3. Check allowed roles
-        allowed_roles = {r.role for r in self.get("allowed_roles") or []}
-        if user_roles.intersection(allowed_roles):
+        # 2. Check individual employee overrides (one-off access exceptions)
+        emp_name = emp.get("name") if hasattr(emp, "get") else getattr(emp, "name", None)
+        allowed_emps = {e.employee for e in self.get("allowed_employees") or [] if getattr(e, "employee", None)}
+        if emp_name in allowed_emps:
             return True
 
-        # 4. Check specific allowed employees
-        allowed_emps = {e.employee for e in self.get("allowed_employees") or []}
-        if emp.get("name") in allowed_emps:
-            return True
+        # 3. Check matching physical Biometric Access Roles
+        door_roles = {r.access_role for r in self.get("allowed_access_roles") or [] if getattr(r, "access_role", None)}
+        if door_roles:
+            emp_roles_list = emp.get("custom_biometric_access_roles") or []
+            emp_roles = set()
+            for r in emp_roles_list:
+                role_val = r.get("access_role") if hasattr(r, "get") else getattr(r, "access_role", None)
+                if role_val:
+                    emp_roles.add(role_val)
+            if emp_roles.intersection(door_roles):
+                return True
 
         return False
+
+    def is_user_authorized(self, user=None, employee_doc=None):
+        """Backward-compatible alias: physical check if employee given, else remote check."""
+        if employee_doc:
+            return self.is_employee_physically_authorized(employee_doc=employee_doc)
+        return self.is_remote_user_authorized(user=user)
 
     @frappe.whitelist()
     def unlock_door(self, source="Remote Desk Unlock", user=None):
@@ -126,12 +298,16 @@ class BiometricDevice(Document):
             frappe.throw(frappe._("Door Access Control is not enabled on this device."))
 
         invoker = user or frappe.session.user
+        if not self.is_remote_user_authorized(invoker):
+            frappe.throw(frappe._("User {0} is not authorized to remotely unlock {1}.").format(invoker, self.name), frappe.PermissionError)
 
         # 1. Trigger Built-in Terminal Relay via Hikvision ISAPI
         if getattr(self, "relay_control_type", None) == "Built-in Terminal Relay (Hikvision ISAPI)" or not self.relay_control_type:
             password = self.get_password("password")
-            if not self.ip or not self.username or not password:
-                frappe.throw(frappe._("Device IP, username, and password are required to trigger unlock."))
+            if not self.ip:
+                frappe.throw(frappe._("Device IP is unknown yet. Please wait for the device to connect/send an event, or enter its local IP manually."))
+            if not self.username or not password:
+                frappe.throw(frappe._("Device username and password are required to trigger unlock."))
 
             url = f"{self.get_base_url()}/ISAPI/AccessControl/RemoteControl/door/1"
             headers = {"Content-Type": "application/xml"}

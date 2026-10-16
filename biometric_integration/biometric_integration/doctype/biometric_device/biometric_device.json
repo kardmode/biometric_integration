@@ -16,6 +16,7 @@
   "location",
   "connection_section",
   "ip",
+  "mac_address",
   "protocol",
   "port",
   "column_break_conn",
@@ -32,10 +33,18 @@
   "column_break_relay",
   "external_relay_ip",
   "external_relay_channel",
-  "permissions_section",
+  "remote_access_section",
+  "remote_allowed_roles",
+  "remote_allowed_users",
+  "physical_access_section",
   "allow_all_active_employees",
-  "allowed_roles",
+  "allowed_access_roles",
   "allowed_employees",
+  "door_schedule_section",
+  "enable_free_passage",
+  "door_open_schedule",
+  "schedule_sync_status",
+  "schedule_last_synced",
   "webhook_section",
   "webhook_secret_key",
   "webhook_endpoint_url",
@@ -47,7 +56,6 @@
   "device_id",
   "model",
   "device_serial_number",
-  "mac_address",
   "last_unlock_time",
   "last_unlock_user"
  ],
@@ -108,11 +116,18 @@
    "label": "Network & Connection"
   },
   {
+   "description": "Auto-detected when device connects, or enter manually",
    "fieldname": "ip",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "IP Address",
-   "reqd": 1
+   "label": "IP Address"
+  },
+  {
+   "description": "Device hardware MAC address (auto-detected on connect, or enter manually)",
+   "fieldname": "mac_address",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "MAC Address"
   },
   {
    "default": "HTTP",
@@ -220,30 +235,91 @@
   },
   {
    "depends_on": "eval:doc.enable_access_control",
-   "fieldname": "permissions_section",
+   "fieldname": "remote_access_section",
    "fieldtype": "Section Break",
-   "label": "Access Permissions"
+   "label": "Remote Desk Unlock Permissions"
   },
   {
-   "default": "1",
-   "description": "Grant access to all employees who have Active employment status",
-   "fieldname": "allow_all_active_employees",
-   "fieldtype": "Check",
-   "label": "Allow All Active Employees"
-  },
-  {
-   "depends_on": "eval:!doc.allow_all_active_employees",
-   "fieldname": "allowed_roles",
+   "depends_on": "eval:doc.enable_access_control",
+   "description": "Frappe user roles permitted to trigger remote unlock from Desk / API (System Managers always have access)",
+   "fieldname": "remote_allowed_roles",
    "fieldtype": "Table",
-   "label": "Allowed Roles",
+   "label": "Allowed Roles for Remote Unlock",
    "options": "Access Door Role"
   },
   {
-   "depends_on": "eval:!doc.allow_all_active_employees",
+   "depends_on": "eval:doc.enable_access_control",
+   "description": "Specific Frappe User logins permitted to trigger remote unlock (independent of Employee records)",
+   "fieldname": "remote_allowed_users",
+   "fieldtype": "Table",
+   "label": "Allowed Users for Remote Unlock",
+   "options": "Remote Door User"
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control",
+   "fieldname": "physical_access_section",
+   "fieldtype": "Section Break",
+   "label": "Physical Terminal Access Permissions"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_access_control",
+   "description": "Grant physical door access to all Active employees on the terminal",
+   "fieldname": "allow_all_active_employees",
+   "fieldtype": "Check",
+   "label": "Allow All Active Employees on Physical Device"
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control && !doc.allow_all_active_employees",
+   "description": "Only employees tagged with at least one of these physical access roles will be provisioned to this terminal",
+   "fieldname": "allowed_access_roles",
+   "fieldtype": "Table",
+   "label": "Allowed Physical Access Roles",
+   "options": "Biometric Door Access Role"
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control && !doc.allow_all_active_employees",
+   "description": "Specific individual employees granted access as direct exceptions",
    "fieldname": "allowed_employees",
    "fieldtype": "Table",
-   "label": "Allowed Employees",
+   "label": "Allowed Individual Employees (Overrides)",
    "options": "Access Door Employee"
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control",
+   "fieldname": "door_schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Door Open (Free Passage) Schedule"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_access_control",
+   "description": "Keep door automatically unlocked / in free-passage mode during scheduled hours",
+   "fieldname": "enable_free_passage",
+   "fieldtype": "Check",
+   "label": "Enable Door Open Schedule (Normally Open)"
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control && doc.enable_free_passage",
+   "description": "Configure time intervals during which the door remains unlocked. Supports split daily hours (e.g. 09:00-14:00 and 16:00-19:00). Max 8 intervals per day.",
+   "fieldname": "door_open_schedule",
+   "fieldtype": "Table",
+   "label": "Door Open Schedule Intervals",
+   "options": "Biometric Door Schedule Item"
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control",
+   "fieldname": "schedule_sync_status",
+   "fieldtype": "Data",
+   "label": "Schedule Sync Status",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.enable_access_control",
+   "fieldname": "schedule_last_synced",
+   "fieldtype": "Datetime",
+   "label": "Schedule Last Synced",
+   "read_only": 1
   },
   {
    "fieldname": "webhook_section",
@@ -293,28 +369,24 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "Device ID (auto-detected on connect, or enter manually)",
    "fieldname": "device_id",
    "fieldtype": "Data",
-   "label": "Device ID",
-   "read_only": 1
+   "label": "Device ID"
   },
   {
+   "description": "Hardware Model (auto-detected on connect, or enter manually)",
    "fieldname": "model",
    "fieldtype": "Data",
-   "label": "Model",
-   "read_only": 1
+   "in_list_view": 1,
+   "label": "Model"
   },
   {
+   "description": "Device hardware Serial Number (auto-detected on connect, or enter manually)",
    "fieldname": "device_serial_number",
    "fieldtype": "Data",
-   "label": "Device Serial Number",
-   "read_only": 1
-  },
-  {
-   "fieldname": "mac_address",
-   "fieldtype": "Data",
-   "label": "MAC Address",
-   "read_only": 1
+   "in_list_view": 1,
+   "label": "Device Serial Number"
   },
   {
    "fieldname": "last_unlock_time",

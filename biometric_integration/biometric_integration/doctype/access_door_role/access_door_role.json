@@ -5,7 +5,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "role"
+  "role",
+  "access_shift"
  ],
  "fields": [
   {
@@ -15,13 +16,21 @@
    "label": "Allowed Role",
    "options": "Role",
    "reqd": 1
+  },
+  {
+   "description": "Optional time restriction. Leave blank for 24/7 access.",
+   "fieldname": "access_shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Access Shift",
+   "options": "Biometric Access Shift"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-04 10:00:00.000000",
+ "modified": "2026-10-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Biometric Integration",
  "name": "Access Door Role",

@@ -1,0 +1,216 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "autoname": "format:VIS-.YYYY.-.#####",
+ "creation": "2026-10-15 22:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "general_section",
+  "visitor_name",
+  "company",
+  "phone",
+  "email",
+  "col_break_1",
+  "status",
+  "host_employee",
+  "purpose_of_visit",
+  "access_section",
+  "visitor_device_id",
+  "pin_code",
+  "col_break_2",
+  "valid_from",
+  "valid_to",
+  "max_uses",
+  "doors_section",
+  "doors",
+  "sync_section",
+  "last_synced",
+  "sync_details"
+ ],
+ "fields": [
+  {
+   "fieldname": "general_section",
+   "fieldtype": "Section Break",
+   "label": "Visitor Information"
+  },
+  {
+   "fieldname": "visitor_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Visitor Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company / Organization"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Phone Number"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email Address"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nExpired\nRevoked",
+   "reqd": 1
+  },
+  {
+   "fieldname": "host_employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Host Employee",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "purpose_of_visit",
+   "fieldtype": "Small Text",
+   "label": "Purpose of Visit"
+  },
+  {
+   "fieldname": "access_section",
+   "fieldtype": "Section Break",
+   "label": "Temporary Door Access & PIN"
+  },
+  {
+   "fieldname": "visitor_device_id",
+   "fieldtype": "Data",
+   "label": "Visitor Hardware ID",
+   "read_only": 1,
+   "description": "Unique temporary ID on the terminals (e.g. 90012)"
+  },
+  {
+   "fieldname": "pin_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Temporary PIN Code",
+   "read_only": 1,
+   "description": "Auto-generated 6-digit keypad entry PIN"
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "valid_from",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Valid From",
+   "reqd": 1
+  },
+  {
+   "fieldname": "valid_to",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Valid Until",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "max_uses",
+   "fieldtype": "Int",
+   "label": "Max Uses",
+   "description": "0 = unlimited entries during validity window; 1 or 2 limits access count"
+  },
+  {
+   "fieldname": "doors_section",
+   "fieldtype": "Section Break",
+   "label": "Permitted Doors"
+  },
+  {
+   "description": "Specify allowed doors, or leave empty to allow all active door access terminals",
+   "fieldname": "doors",
+   "fieldtype": "Table",
+   "label": "Allowed Doors",
+   "options": "Biometric Visitor Door"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sync_section",
+   "fieldtype": "Section Break",
+   "label": "Device Synchronization Details"
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced to Devices",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sync_details",
+   "fieldtype": "Small Text",
+   "label": "Sync Details",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-15 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "Biometric Visitor Pass",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -43,7 +43,9 @@ add_to_apps_screen = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {
+    "Employee": "public/js/employee_biometric.js"
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -139,6 +141,11 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+    "Employee": {
+        "validate": "biometric_integration.biometric_integration.employee_sync.validate_employee_access_roles",
+        "on_update": "biometric_integration.biometric_integration.employee_sync.on_employee_update",
+        "on_trash": "biometric_integration.biometric_integration.employee_sync.on_employee_trash"
+    },
     "Biometric Manual Punch": {
         "on_trash": "biometric_integration.biometric_integration.doctype.biometric_manual_punch.biometric_manual_punch.delete_manual_punch"
     },
@@ -165,7 +172,11 @@ scheduler_events = {
         "15 8 * * 0-2,4-6": [
             "biometric_integration.biometric_integration.doctype.biometric_device.biometric_device.sync_all_active_devices"
         ]
-    }
+    },
+    "hourly": [
+        "biometric_integration.biometric_integration.doctype.biometric_visitor_pass.biometric_visitor_pass.expire_old_visitor_passes"
+    ]
+}
 # 	"all": [
 # 		"biometric_integration.tasks.all"
 # 	],
@@ -181,7 +192,7 @@ scheduler_events = {
 # 	"monthly": [
 # 		"biometric_integration.tasks.monthly"
 # 	],
-}
+# }
 
 # Testing
 # -------
