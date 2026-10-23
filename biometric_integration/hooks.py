@@ -133,7 +133,8 @@ after_migrate = "biometric_integration.biometric_integration.setup.setup_custom_
 # Override standard doctype classes
 
 override_doctype_class = {
-	"Shift Type": "biometric_integration.biometric_integration.overrides.CustomShiftType"
+	"Shift Type": "biometric_integration.biometric_integration.overrides.CustomShiftType",
+	"Attendance": "biometric_integration.biometric_integration.custom_attendance.CustomAttendance"
 }
 
 # Document Events

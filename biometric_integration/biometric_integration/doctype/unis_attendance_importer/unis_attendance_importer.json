@@ -1,0 +1,101 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-10-23 12:50:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "import_section",
+  "import_settings",
+  "only_show_errors",
+  "col_break_1",
+  "default_company",
+  "upload_section",
+  "upload_html",
+  "import_summary_section",
+  "import_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "import_section",
+   "fieldtype": "Section Break",
+   "label": "Import Configuration"
+  },
+  {
+   "default": "Update Existing Records",
+   "fieldname": "import_settings",
+   "fieldtype": "Select",
+   "label": "Import Settings",
+   "options": "Update Existing Records\nSkip Existing Records\nOverwrite All Records",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "only_show_errors",
+   "fieldtype": "Check",
+   "label": "Only Show Warnings & Errors in Log"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Default Company (Fallback)",
+   "options": "Company"
+  },
+  {
+   "fieldname": "upload_section",
+   "fieldtype": "Section Break",
+   "label": "Upload UNIS CSV Export"
+  },
+  {
+   "fieldname": "upload_html",
+   "fieldtype": "HTML",
+   "label": "Upload CSV"
+  },
+  {
+   "fieldname": "import_summary_section",
+   "fieldtype": "Section Break",
+   "label": "Import Results & Error Log"
+  },
+  {
+   "fieldname": "import_log",
+   "fieldtype": "HTML",
+   "label": "Import Log"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-23 12:50:00.000000",
+ "modified_by": "Administrator",
+ "module": "Biometric Integration",
+ "name": "UNIS Attendance Importer",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

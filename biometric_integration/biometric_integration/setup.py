@@ -29,6 +29,92 @@ def setup_custom_fields():
 				"in_list_view": 0,
 				"insert_after": "custom_review_status",
 			},
+			{
+				"fieldname": "custom_attendance_times_section",
+				"label": "Daily Hours & Overtime Details",
+				"fieldtype": "Section Break",
+				"insert_after": "custom_review_reason",
+			},
+			{
+				"fieldname": "custom_arrival_time",
+				"label": "Arrival Time",
+				"fieldtype": "Time",
+				"in_list_view": 1,
+				"insert_after": "custom_attendance_times_section",
+			},
+			{
+				"fieldname": "custom_departure_time",
+				"label": "Departure Time",
+				"fieldtype": "Time",
+				"in_list_view": 1,
+				"insert_after": "custom_arrival_time",
+			},
+			{
+				"fieldname": "custom_col_break_hours",
+				"fieldtype": "Column Break",
+				"insert_after": "custom_departure_time",
+			},
+			{
+				"fieldname": "custom_working_time",
+				"label": "Working Time (Hours)",
+				"fieldtype": "Float",
+				"read_only": 1,
+				"insert_after": "custom_col_break_hours",
+			},
+			{
+				"fieldname": "custom_normal_time",
+				"label": "Normal Time (Hours)",
+				"fieldtype": "Float",
+				"read_only": 1,
+				"insert_after": "custom_working_time",
+			},
+			{
+				"fieldname": "custom_overtime_section",
+				"label": "Overtime Breakdown",
+				"fieldtype": "Section Break",
+				"insert_after": "custom_normal_time",
+			},
+			{
+				"fieldname": "custom_overtime",
+				"label": "Overtime (Weekdays)",
+				"fieldtype": "Float",
+				"read_only": 1,
+				"insert_after": "custom_overtime_section",
+			},
+			{
+				"fieldname": "custom_overtime_fridays",
+				"label": "Overtime (Fridays / Weekends)",
+				"fieldtype": "Float",
+				"read_only": 1,
+				"insert_after": "custom_overtime",
+			},
+			{
+				"fieldname": "custom_col_break_ot",
+				"fieldtype": "Column Break",
+				"insert_after": "custom_overtime_fridays",
+			},
+			{
+				"fieldname": "custom_overtime_holidays",
+				"label": "Overtime (Holidays)",
+				"fieldtype": "Float",
+				"read_only": 1,
+				"insert_after": "custom_col_break_ot",
+			},
+			{
+				"fieldname": "custom_total_overtime",
+				"label": "Total Overtime",
+				"fieldtype": "Float",
+				"read_only": 1,
+				"insert_after": "custom_overtime_holidays",
+			},
+			{
+				"fieldname": "custom_overtime_type",
+				"label": "Overtime Type",
+				"fieldtype": "Select",
+				"options": "Weekdays\nWeekends\nHolidays",
+				"read_only": 1,
+				"insert_after": "custom_total_overtime",
+			},
 		],
 		"Employee": [
 			{
@@ -149,3 +235,51 @@ def setup_custom_fields():
 			WHERE dt = 'Employee'
 			  AND fieldname = 'custom_biometric_device_enrolled_id'
 		""")
+
+	# Safe Data Migration & Verification Loop:
+	# 1. Copies each column.
+	# 2. Verifies that 0 non-null values remain uncopied.
+	# 3. Only drops the legacy column if verification succeeds 100%.
+	if frappe.db.table_exists("Attendance"):
+		legacy_to_new = [
+			("arrival_time", "custom_arrival_time"),
+			("departure_time", "custom_departure_time"),
+			("working_time", "custom_working_time"),
+			("normal_time", "custom_normal_time"),
+			("overtime", "custom_overtime"),
+			("overtime_fridays", "custom_overtime_fridays"),
+			("overtime_holidays", "custom_overtime_holidays"),
+			("mrp_overtime", "custom_total_overtime"),
+			("mrp_overtime_type", "custom_overtime_type"),
+		]
+
+		for legacy_col, new_col in legacy_to_new:
+			if frappe.db.has_column("Attendance", legacy_col) and frappe.db.has_column("Attendance", new_col):
+				try:
+					# Step A: Copy data from legacy column to new custom column
+					frappe.db.sql(f"""
+						UPDATE `tabAttendance`
+						SET `{new_col}` = `{legacy_col}`
+						WHERE (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
+						  AND (`{legacy_col}` IS NOT NULL AND `{legacy_col}` != '' AND `{legacy_col}` != 0)
+					""")
+
+					# Step B: Strict Verification Gate
+					# Check if any row still has legacy data that failed to copy to new_col
+					unmigrated = frappe.db.sql(f"""
+						SELECT COUNT(*) 
+						FROM `tabAttendance` 
+						WHERE (`{legacy_col}` IS NOT NULL AND `{legacy_col}` != '' AND `{legacy_col}` != 0)
+						  AND (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
+					""")[0][0]
+
+					# Step C: Only drop if 0 unmigrated records remain
+					if unmigrated == 0:
+						frappe.db.sql(f"ALTER TABLE `tabAttendance` DROP COLUMN `{legacy_col}`")
+						frappe.logger().info(f"[Biometric Migration] Successfully migrated and dropped legacy column {legacy_col}")
+					else:
+						frappe.logger().warning(
+							f"[Biometric Migration] Skipped dropping {legacy_col}: {unmigrated} records not verified in {new_col}."
+						)
+				except Exception as e:
+					frappe.log_error(title="Attendance Column Migration Error", message=str(e))
