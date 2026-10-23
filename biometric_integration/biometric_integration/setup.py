@@ -8,7 +8,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 def setup_custom_fields():
 	"""
 	Ensure custom fields exist on Attendance and Employee doctypes.
-	Called automatically after bench migrate.
+	Called automatically after bench migrate or manually via bench execute.
 	"""
 	custom_fields = {
 		"Attendance": [
@@ -236,50 +236,121 @@ def setup_custom_fields():
 			  AND fieldname = 'custom_biometric_device_enrolled_id'
 		""")
 
-	# Safe Data Migration & Verification Loop:
-	# 1. Copies each column.
-	# 2. Verifies that 0 non-null values remain uncopied.
-	# 3. Only drops the legacy column if verification succeeds 100%.
-	if frappe.db.table_exists("Attendance"):
-		legacy_to_new = [
-			("arrival_time", "custom_arrival_time"),
-			("departure_time", "custom_departure_time"),
-			("working_time", "custom_working_time"),
-			("normal_time", "custom_normal_time"),
-			("overtime", "custom_overtime"),
-			("overtime_fridays", "custom_overtime_fridays"),
-			("overtime_holidays", "custom_overtime_holidays"),
-			("mrp_overtime", "custom_total_overtime"),
-			("mrp_overtime_type", "custom_overtime_type"),
-		]
 
-		for legacy_col, new_col in legacy_to_new:
-			if frappe.db.has_column("Attendance", legacy_col) and frappe.db.has_column("Attendance", new_col):
-				try:
-					# Step A: Copy data from legacy column to new custom column
-					frappe.db.sql(f"""
-						UPDATE `tabAttendance`
-						SET `{new_col}` = `{legacy_col}`
-						WHERE (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
-						  AND (`{legacy_col}` IS NOT NULL AND `{legacy_col}` != '' AND `{legacy_col}` != 0)
-					""")
+def copy_legacy_attendance_data():
+	"""
+	Step 2 Method: Copies historical data from legacy attendance columns into custom_* columns.
+	Run manually via:
+	  bench --site mrp.maarifagroup.com execute biometric_integration.biometric_integration.setup.copy_legacy_attendance_data
+	"""
+	if not frappe.db.table_exists("Attendance"):
+		print("tabAttendance does not exist.")
+		return
 
-					# Step B: Strict Verification Gate
-					# Check if any row still has legacy data that failed to copy to new_col
-					unmigrated = frappe.db.sql(f"""
-						SELECT COUNT(*) 
-						FROM `tabAttendance` 
-						WHERE (`{legacy_col}` IS NOT NULL AND `{legacy_col}` != '' AND `{legacy_col}` != 0)
-						  AND (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
-					""")[0][0]
+	# Mapping: legacy column -> new custom_* column
+	cols = [
+		("arrival_time", "custom_arrival_time"),
+		("departure_time", "custom_departure_time"),
+		("working_time", "custom_working_time"),
+		("normal_time", "custom_normal_time"),
+		("overtime", "custom_overtime"),
+		("overtime_fridays", "custom_overtime_fridays"),
+		("overtime_holidays", "custom_overtime_holidays"),
+		("mrp_overtime", "custom_total_overtime"),
+		("mrp_overtime_type", "custom_overtime_type"),
+	]
 
-					# Step C: Only drop if 0 unmigrated records remain
-					if unmigrated == 0:
-						frappe.db.sql(f"ALTER TABLE `tabAttendance` DROP COLUMN `{legacy_col}`")
-						frappe.logger().info(f"[Biometric Migration] Successfully migrated and dropped legacy column {legacy_col}")
-					else:
-						frappe.logger().warning(
-							f"[Biometric Migration] Skipped dropping {legacy_col}: {unmigrated} records not verified in {new_col}."
-						)
-				except Exception as e:
-					frappe.log_error(title="Attendance Column Migration Error", message=str(e))
+	print("\n--- Starting Legacy Attendance Data Copy ---")
+	for old_col, new_col in cols:
+		has_old = frappe.db.has_column("Attendance", old_col)
+		has_new = frappe.db.has_column("Attendance", new_col)
+
+		if not has_old:
+			print(f"[{old_col}] Legacy column not present in table. Skipped.")
+			continue
+
+		if not has_new:
+			print(f"[{new_col}] New custom column not present in table. Please run bench migrate or sync first.")
+			continue
+
+		# Count records with legacy data
+		old_cnt = frappe.db.sql(
+			f"SELECT COUNT(*) FROM `tabAttendance` WHERE `{old_col}` IS NOT NULL AND `{old_col}` != '' AND `{old_col}` != 0"
+		)[0][0]
+
+		# Run copy
+		frappe.db.sql(f"""
+			UPDATE `tabAttendance`
+			SET `{new_col}` = `{old_col}`
+			WHERE (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
+			  AND (`{old_col}` IS NOT NULL AND `{old_col}` != '' AND `{old_col}` != 0)
+		""")
+		frappe.db.commit()
+
+		new_cnt = frappe.db.sql(
+			f"SELECT COUNT(*) FROM `tabAttendance` WHERE `{new_col}` IS NOT NULL AND `{new_col}` != '' AND `{new_col}` != 0"
+		)[0][0]
+
+		print(f"{old_col} ({old_cnt} rows) -> {new_col} ({new_cnt} rows) [Copied Successfully]")
+
+	print("--- Copy Completed Successfully! ---\n")
+
+
+def remove_legacy_attendance_columns():
+	"""
+	Step 3 Method: Safely removes legacy attendance columns AFTER you have verified the copy.
+	Run manually via:
+	  bench --site mrp.maarifagroup.com execute biometric_integration.biometric_integration.setup.remove_legacy_attendance_columns
+	"""
+	if not frappe.db.table_exists("Attendance"):
+		print("tabAttendance does not exist.")
+		return
+
+	cols = [
+		("arrival_time", "custom_arrival_time"),
+		("departure_time", "custom_departure_time"),
+		("working_time", "custom_working_time"),
+		("normal_time", "custom_normal_time"),
+		("overtime", "custom_overtime"),
+		("overtime_fridays", "custom_overtime_fridays"),
+		("overtime_holidays", "custom_overtime_holidays"),
+		("mrp_overtime", "custom_total_overtime"),
+		("mrp_overtime_type", "custom_overtime_type"),
+	]
+
+	print("\n--- Removing Legacy Attendance Columns & Custom Fields ---")
+	for old_col, new_col in cols:
+		if not frappe.db.has_column("Attendance", old_col):
+			print(f"[{old_col}] Already removed.")
+			continue
+
+		# Safety Verification: Ensure new column has data before dropping old
+		unmigrated = 0
+		if frappe.db.has_column("Attendance", new_col):
+			unmigrated = frappe.db.sql(f"""
+				SELECT COUNT(*) FROM `tabAttendance`
+				WHERE (`{old_col}` IS NOT NULL AND `{old_col}` != '' AND `{old_col}` != 0)
+				  AND (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
+			""")[0][0]
+
+		if unmigrated > 0:
+			print(f"SAFETY ABORT for {old_col}: {unmigrated} records not copied into {new_col}! Column NOT dropped.")
+			continue
+
+		# 1. Delete Custom Field doc if managed by Frappe
+		cf_name = f"Attendance-{old_col}"
+		if frappe.db.exists("Custom Field", cf_name):
+			frappe.delete_doc("Custom Field", cf_name, ignore_permissions=True)
+			print(f"Deleted Custom Field record: {cf_name}")
+
+		# 2. Drop the physical database column if still present
+		if frappe.db.has_column("Attendance", old_col):
+			try:
+				frappe.db.sql(f"ALTER TABLE `tabAttendance` DROP COLUMN `{old_col}`")
+				print(f"Dropped physical column: {old_col}")
+			except Exception as e:
+				print(f"Note: Could not drop column {old_col}: {e}")
+
+		frappe.db.commit()
+
+	print("--- Cleanup Finished! ---\n")
