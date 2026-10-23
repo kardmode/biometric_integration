@@ -240,6 +240,7 @@ def setup_custom_fields():
 def copy_legacy_attendance_data():
 	"""
 	Step 2 Method: Copies historical data from legacy attendance columns into custom_* columns.
+	Handles MariaDB strict mode by only updating where custom_* IS NULL (avoids comparing TIME columns with '').
 	Run manually via:
 	  bench --site mrp.maarifagroup.com execute biometric_integration.biometric_integration.setup.copy_legacy_attendance_data
 	"""
@@ -247,21 +248,21 @@ def copy_legacy_attendance_data():
 		print("tabAttendance does not exist.")
 		return
 
-	# Mapping: legacy column -> new custom_* column
+	# Mapping: (legacy column, new custom_* column, is_time_field)
 	cols = [
-		("arrival_time", "custom_arrival_time"),
-		("departure_time", "custom_departure_time"),
-		("working_time", "custom_working_time"),
-		("normal_time", "custom_normal_time"),
-		("overtime", "custom_overtime"),
-		("overtime_fridays", "custom_overtime_fridays"),
-		("overtime_holidays", "custom_overtime_holidays"),
-		("mrp_overtime", "custom_total_overtime"),
-		("mrp_overtime_type", "custom_overtime_type"),
+		("arrival_time", "custom_arrival_time", True),
+		("departure_time", "custom_departure_time", True),
+		("working_time", "custom_working_time", False),
+		("normal_time", "custom_normal_time", False),
+		("overtime", "custom_overtime", False),
+		("overtime_fridays", "custom_overtime_fridays", False),
+		("overtime_holidays", "custom_overtime_holidays", False),
+		("mrp_overtime", "custom_total_overtime", False),
+		("mrp_overtime_type", "custom_overtime_type", False),
 	]
 
 	print("\n--- Starting Legacy Attendance Data Copy ---")
-	for old_col, new_col in cols:
+	for old_col, new_col, is_time in cols:
 		has_old = frappe.db.has_column("Attendance", old_col)
 		has_new = frappe.db.has_column("Attendance", new_col)
 
@@ -273,22 +274,35 @@ def copy_legacy_attendance_data():
 			print(f"[{new_col}] New custom column not present in table. Please run bench migrate or sync first.")
 			continue
 
-		# Count records with legacy data
-		old_cnt = frappe.db.sql(
-			f"SELECT COUNT(*) FROM `tabAttendance` WHERE `{old_col}` IS NOT NULL AND `{old_col}` != '' AND `{old_col}` != 0"
-		)[0][0]
+		if is_time:
+			# In MariaDB, comparing a TIME column with '' throws error 1292.
+			# We only compare with NULL or valid time length > 0.
+			old_cnt = frappe.db.sql(
+				f"SELECT COUNT(*) FROM `tabAttendance` WHERE `{old_col}` IS NOT NULL"
+			)[0][0]
 
-		# Run copy
-		frappe.db.sql(f"""
-			UPDATE `tabAttendance`
-			SET `{new_col}` = `{old_col}`
-			WHERE (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
-			  AND (`{old_col}` IS NOT NULL AND `{old_col}` != '' AND `{old_col}` != 0)
-		""")
+			frappe.db.sql(f"""
+				UPDATE `tabAttendance`
+				SET `{new_col}` = `{old_col}`
+				WHERE `{old_col}` IS NOT NULL
+				  AND `{new_col}` IS NULL
+			""")
+		else:
+			old_cnt = frappe.db.sql(
+				f"SELECT COUNT(*) FROM `tabAttendance` WHERE `{old_col}` IS NOT NULL AND `{old_col}` != 0"
+			)[0][0]
+
+			frappe.db.sql(f"""
+				UPDATE `tabAttendance`
+				SET `{new_col}` = `{old_col}`
+				WHERE `{old_col}` IS NOT NULL
+				  AND (`{new_col}` IS NULL OR `{new_col}` = 0)
+			""")
+
 		frappe.db.commit()
 
 		new_cnt = frappe.db.sql(
-			f"SELECT COUNT(*) FROM `tabAttendance` WHERE `{new_col}` IS NOT NULL AND `{new_col}` != '' AND `{new_col}` != 0"
+			f"SELECT COUNT(*) FROM `tabAttendance` WHERE `{new_col}` IS NOT NULL"
 		)[0][0]
 
 		print(f"{old_col} ({old_cnt} rows) -> {new_col} ({new_cnt} rows) [Copied Successfully]")
@@ -329,8 +343,8 @@ def remove_legacy_attendance_columns():
 		if frappe.db.has_column("Attendance", new_col):
 			unmigrated = frappe.db.sql(f"""
 				SELECT COUNT(*) FROM `tabAttendance`
-				WHERE (`{old_col}` IS NOT NULL AND `{old_col}` != '' AND `{old_col}` != 0)
-				  AND (`{new_col}` IS NULL OR `{new_col}` = '' OR `{new_col}` = 0)
+				WHERE `{old_col}` IS NOT NULL
+				  AND `{new_col}` IS NULL
 			""")[0][0]
 
 		if unmigrated > 0:
