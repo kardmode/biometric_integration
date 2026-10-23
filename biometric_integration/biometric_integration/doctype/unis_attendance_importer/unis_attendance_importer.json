@@ -7,6 +7,7 @@
  "field_order": [
   "import_section",
   "import_settings",
+  "single_punch_handling",
   "only_show_errors",
   "col_break_1",
   "default_company",
@@ -22,12 +23,20 @@
    "label": "Import Configuration"
   },
   {
-   "default": "Update Existing Records",
+   "default": "Dry Run (Preview & Validate Only)",
    "fieldname": "import_settings",
    "fieldtype": "Select",
    "label": "Import Settings",
-   "options": "Update Existing Records\nSkip Existing Records\nOverwrite All Records",
+   "options": "Dry Run (Preview & Validate Only)\nUpdate Existing Records\nSkip Existing Records\nOverwrite All Records",
    "reqd": 1
+  },
+  {
+   "default": "Skip & Report in Error Log",
+   "fieldname": "single_punch_handling",
+   "fieldtype": "Select",
+   "label": "Single Punch & < 2h Records",
+   "options": "Skip & Report in Error Log\nAttempt Save (Flag Must Check)",
+   "description": "Choose whether incomplete punches (no departure / under 2h) are cleanly skipped and reported or attempted."
   },
   {
    "default": "1",

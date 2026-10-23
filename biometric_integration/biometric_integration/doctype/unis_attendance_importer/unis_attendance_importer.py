@@ -7,7 +7,7 @@ from collections import defaultdict
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate, cstr
+from frappe.utils import getdate, cstr, flt, time_diff_in_seconds
 
 
 class UNISAttendanceImporter(Document):
@@ -32,9 +32,17 @@ def upload():
 
 
 def import_unis_attendance(raw_rows):
-	params = json.loads(frappe.form_dict.get("params") or "{}")
-	import_settings = params.get("import_settings") or "Update Existing Records"
+	raw_params = frappe.form_dict.get("params") or "{}"
+	try:
+		params = json.loads(raw_params) if isinstance(raw_params, str) else raw_params
+	except Exception:
+		params = {}
+
+	import_settings = params.get("import_settings") or "Dry Run (Preview & Validate Only)"
+	single_punch_handling = params.get("single_punch_handling") or "Skip & Report in Error Log"
 	default_company = params.get("default_company") or frappe.defaults.get_user_default("Company")
+
+	is_dry_run = "Dry Run" in import_settings
 
 	# Step 1: Pre-cache employee lookups
 	emp_cache = {}
@@ -100,7 +108,7 @@ def import_unis_attendance(raw_rows):
 
 		if not matched_employee:
 			parse_errors.append(
-				_("Row {0}: Employee '{1}' ({2}) does not exist in ERPNext.").format(
+				_("Row {0}: Employee '{1}' (Device UID {2}) does not exist in ERPNext.").format(
 					idx + 1, emp_id_in_file or emp_name_in_file, dev_uid_str
 				)
 			)
@@ -134,9 +142,10 @@ def import_unis_attendance(raw_rows):
 	updated_count = 0
 	skipped_count = 0
 	single_punch_count = 0
+	under_2h_count = 0
 	error_count = 0
 
-	# Step 4: Process Attendance records using clean custom_* fields
+	# Step 4: Process Attendance records
 	for loop_idx, ((emp_name, att_date), punch_list) in enumerate(grouped_punches.items()):
 		sorted_times = sorted([p["time"] for p in punch_list])
 		first_punch = sorted_times[0]
@@ -146,55 +155,102 @@ def import_unis_attendance(raw_rows):
 		arrival_time = first_punch
 		departure_time = last_punch if not single_punch else "00:00:00"
 
+		# Calculate preliminary span hours
+		span_hours = 0
+		if not single_punch:
+			try:
+				span_hours = flt(time_diff_in_seconds(departure_time, arrival_time)) / 3600
+			except Exception:
+				span_hours = 0
+
+		is_under_2h = (not single_punch and 0 < span_hours < 2.0)
+
+		# Check existing record in DB
 		existing = frappe.db.get_value(
 			"Attendance",
 			{"employee": emp_name, "attendance_date": att_date, "docstatus": ["<", 2]},
-			["name", "docstatus", "status"],
+			["name", "docstatus", "status", "custom_review_status", "custom_arrival_time", "custom_departure_time"],
 			as_dict=True
 		)
 
-		if existing:
-			if import_settings == "Skip Existing Records":
+		action_type = "Updated" if existing else "Created"
+
+		# Handling for Single Punches
+		if single_punch:
+			single_punch_count += 1
+			if single_punch_handling == "Skip & Report in Error Log" or is_dry_run:
+				skipped_count += 1
+				warn_text = _("<b>[Single Punch]</b> Employee {0} on {1} had only 1 punch ({2}). Departure missing — Skipped from save.").format(emp_name, att_date, arrival_time)
+				messages.append(f"<span class='text-warning'>{warn_text}</span>")
+				continue
+
+		# Handling for Under 2 Hours
+		if is_under_2h:
+			under_2h_count += 1
+			if single_punch_handling == "Skip & Report in Error Log" or is_dry_run:
+				skipped_count += 1
+				warn_text = _("<b>[Under 2 Hours]</b> Employee {0} on {1}: IN {2} | OUT {3} ({4:.2f} hrs). Work hours under 2 — Skipped from save.").format(emp_name, att_date, arrival_time, departure_time, span_hours)
+				messages.append(f"<span class='text-warning'>{warn_text}</span>")
+				continue
+
+		# Check if already verified
+		if existing and existing.custom_review_status == "Verified" and import_settings != "Overwrite All Records":
+			skipped_count += 1
+			if is_dry_run:
+				messages.append(f"<span class='text-muted'><b>[Skipped]</b> Employee {0} on {1} is already 'Verified' by HR.</span>".format(emp_name, att_date))
+			continue
+
+		# Check idempotency
+		if existing and import_settings != "Overwrite All Records":
+			curr_arr = str(existing.custom_arrival_time or "")
+			curr_dep = str(existing.custom_departure_time or "")
+			if curr_arr == arrival_time and curr_dep == departure_time:
 				skipped_count += 1
 				continue
-			elif import_settings in ["Update Existing Records", "Overwrite All Records"]:
-				doc = frappe.get_doc("Attendance", existing.name)
-				doc.custom_arrival_time = arrival_time
-				doc.custom_departure_time = departure_time
-				doc.in_time = f"{att_date} {arrival_time}"
-				doc.out_time = f"{att_date} {departure_time}" if not single_punch else None
-				doc.status = "Present"
-				action_type = "Updated"
+
+		if existing and import_settings == "Skip Existing Records":
+			skipped_count += 1
+			continue
+
+		# --- DRY RUN PREVIEW MODE ---
+		if is_dry_run:
+			if action_type == "Created":
+				created_count += 1
+				msg = _("<b>[Would Create]</b> {0} on {1}: IN {2} | OUT {3} ({4:.2f} hrs)").format(
+					emp_name, att_date, arrival_time, departure_time, span_hours
+				)
+				messages.append(f"<span class='text-success'>{msg}</span>")
 			else:
-				skipped_count += 1
-				continue
+				updated_count += 1
+				msg = _("<b>[Would Update]</b> {0} on {1}: IN {2} | OUT {3} ({4:.2f} hrs)").format(
+					emp_name, att_date, arrival_time, departure_time, span_hours
+				)
+				messages.append(f"<span class='text-info'>{msg}</span>")
+			continue
+
+		# --- LIVE EXECUTION MODE ---
+		if existing:
+			doc = frappe.get_doc("Attendance", existing.name)
 		else:
 			doc = frappe.new_doc("Attendance")
 			doc.employee = emp_name
 			doc.attendance_date = att_date
 			doc.company = punch_list[0]["company"]
 			doc.department = punch_list[0]["department"]
-			doc.custom_arrival_time = arrival_time
-			doc.custom_departure_time = departure_time
-			doc.in_time = f"{att_date} {arrival_time}"
-			doc.out_time = f"{att_date} {departure_time}" if not single_punch else None
-			doc.status = "Present"
-			action_type = "Created"
 
-		if single_punch:
-			single_punch_count += 1
-			doc.custom_review_status = "Must Check"
-			doc.custom_review_reason = _("Single punch recorded ({0}) - Departure missing").format(arrival_time)
-			warning_msg = _(
-				"<b>Warning:</b> Employee {0} on {1} had only 1 punch ({2}). Marked as 'Must Check'."
-			).format(emp_name, att_date, arrival_time)
-			messages.append(f"<span class='text-warning'>{warning_msg}</span>")
-		else:
-			if not getattr(doc, "custom_review_status", None) or doc.custom_review_status == "Must Check":
-				doc.custom_review_status = "Normal"
-				doc.custom_review_reason = ""
+		doc.custom_arrival_time = arrival_time
+		doc.custom_departure_time = departure_time
+		doc.in_time = f"{att_date} {arrival_time}"
+		doc.out_time = f"{att_date} {departure_time}" if not single_punch else None
+		doc.status = "Present"
 
+		if not getattr(doc, "custom_review_status", None) or doc.custom_review_status == "Must Check":
+			doc.custom_review_status = "Normal"
+			doc.custom_review_reason = ""
+
+		savepoint_name = f"row_{loop_idx}"
 		try:
+			frappe.db.savepoint(savepoint_name)
 			doc.save(ignore_permissions=True)
 			if action_type == "Created":
 				created_count += 1
@@ -206,6 +262,7 @@ def import_unis_attendance(raw_rows):
 			)
 			messages.append(f"<span class='text-success'>{msg}</span>")
 		except Exception as e:
+			frappe.db.rollback(save_point=savepoint_name)
 			error_count += 1
 			err_msg = _("Error saving Attendance for {0} on {1}: {2}").format(emp_name, att_date, cstr(e))
 			messages.append(f"<span class='text-danger'><b>{err_msg}</b></span>")
@@ -217,23 +274,31 @@ def import_unis_attendance(raw_rows):
 				"total": total_groups
 			})
 
+	# Summary Banner
+	badge = "<span class='badge badge-warning' style='font-size: 13px; padding: 4px 8px;'>DRY RUN PREVIEW (NO DATA MODIFIED)</span>" if is_dry_run else "<span class='badge badge-success' style='font-size: 13px; padding: 4px 8px;'>LIVE IMPORT COMPLETED</span>"
+
 	summary_header = f"""
-	<div style="padding: 10px; background-color: var(--bg-light-gray); border-radius: 6px; margin-bottom: 15px;">
-		<h4 style="margin-top: 0;"><b>Import Summary:</b></h4>
-		<ul>
-			<li><b>Created:</b> {created_count} records</li>
-			<li><b>Updated:</b> {updated_count} records</li>
-			<li><b>Skipped:</b> {skipped_count} records</li>
-			<li><b style="color: #d97706;">Single Punch (Missing Exit):</b> {single_punch_count} records flagged as 'Must Check'</li>
+	<div style="padding: 12px 16px; background-color: var(--bg-light-gray); border-radius: 6px; margin-bottom: 15px; border-left: 5px solid {'#d97706' if is_dry_run else '#16a34a'};">
+		<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+			<h4 style="margin: 0;"><b>Import Summary:</b></h4>
+			{badge}
+		</div>
+		<ul style="margin-bottom: 8px;">
+			<li><b>{'Would Create' if is_dry_run else 'Created'}:</b> {created_count} records</li>
+			<li><b>{'Would Update' if is_dry_run else 'Updated'}:</b> {updated_count} records</li>
+			<li><b>Skipped:</b> {skipped_count} records (Unchanged, already Verified, or flagged single/under-2h)</li>
+			<li><b style="color: #d97706;">Single Punch Days (Missing Exit):</b> {single_punch_count} records</li>
+			<li><b style="color: #d97706;">Work Hours Under 2 Hours:</b> {under_2h_count} records</li>
 			<li><b>Filtered Out:</b> {filtered_visitor_count} visitor/unmatched + {filtered_failed_count} failed captures</li>
-			<li><b style="color: #dc2626;">Errors:</b> {error_count + len(parse_errors)}</li>
+			<li><b style="color: #dc2626;">Validation & Save Errors:</b> {error_count + len(parse_errors)}</li>
 		</ul>
+		{"<p style='margin-bottom: 0; color: #475569;'><i>To apply these changes, change Import Settings from 'Dry Run' to 'Update Existing Records' and upload again.</i></p>" if is_dry_run else ""}
 	</div>
 	"""
-	all_messages = parse_errors + messages
 
+	all_logs = [summary_header] + parse_errors + messages
 	frappe.publish_realtime("import_unis_attendance", {
-		"summary_html": summary_header,
-		"messages": all_messages,
-		"error": error_count > 0 or len(parse_errors) > 0
+		"messages": all_logs,
+		"progress": total_groups,
+		"total": total_groups
 	})
