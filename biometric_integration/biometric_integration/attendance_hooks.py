@@ -16,6 +16,19 @@ def before_validate_attendance(doc, method=None):
 	   allowing existing attendance catches and reports to surface missing punches
 	   for HR review and manual resolution.
 	"""
+	# 0. Sync legacy arrival_time / departure_time to custom fields if present
+	if (
+		not getattr(doc, "custom_arrival_time", None)
+		or str(doc.custom_arrival_time).strip() in ["00:00:00", "00:00", "0:00:00", "00:00:0", "#--:--", "None", ""]
+	) and getattr(doc, "arrival_time", None) and str(doc.arrival_time).strip() not in ["00:00:00", "00:00", "0:00:00", "00:00:0", "#--:--", "None", ""]:
+		doc.custom_arrival_time = str(doc.arrival_time).strip()
+
+	if (
+		not getattr(doc, "custom_departure_time", None)
+		or str(doc.custom_departure_time).strip() in ["00:00:00", "00:00", "0:00:00", "00:00:0", "#--:--", "None", ""]
+	) and getattr(doc, "departure_time", None) and str(doc.departure_time).strip() not in ["00:00:00", "00:00", "0:00:00", "00:00:0", "#--:--", "None", ""]:
+		doc.custom_departure_time = str(doc.departure_time).strip()
+
 	# 1. Sync in_time to custom_arrival_time if empty or not set
 	if doc.in_time and (
 		not getattr(doc, "custom_arrival_time", None)
@@ -46,6 +59,11 @@ def before_validate_attendance(doc, method=None):
 		"#--:--", "00:00", "0:00:00", "00:00:0", "None", ""
 	]:
 		doc.custom_departure_time = "00:00:00"
+
+	if hasattr(doc, "arrival_time"):
+		doc.arrival_time = doc.custom_arrival_time
+	if hasattr(doc, "departure_time"):
+		doc.departure_time = doc.custom_departure_time
 
 
 def validate_salary_slip(doc, method=None):
