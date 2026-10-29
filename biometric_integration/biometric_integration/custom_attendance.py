@@ -123,10 +123,11 @@ class CustomAttendance(Attendance):
 		if working_hours and working_hours[0][0]:
 			normal_time_val = flt(working_hours[0][0])
 		else:
-			if frappe.db.table_exists("MRP Regulations"):
-				normal_time_val = flt(frappe.db.get_single_value("MRP Regulations", "working_hours"))
-			else:
-				normal_time_val = 8.0
+			# MRP Regulations is a Single (stored in tabSingles), so table_exists() is always False for it
+			# and must not guard this read; 8 is only the fallback when the doctype or value is missing
+			normal_time_val = 8.0
+			if frappe.db.exists("DocType", "MRP Regulations"):
+				normal_time_val = flt(frappe.db.get_single_value("MRP Regulations", "working_hours")) or 8.0
 
 		# Weekends check from MRP Day Selector / MRP Regulations
 		weekends = []
