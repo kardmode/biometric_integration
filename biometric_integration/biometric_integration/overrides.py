@@ -127,12 +127,12 @@ def custom_mark_attendance_and_link_log(
 
 			# Lenient missing punch tagging
 			if not out_time and in_time:
-				attendance.departure_time = "17:00:00"
+				attendance.custom_departure_time = "17:00:00"
 				attendance.status = "Present"
 				attendance.custom_review_status = "Must Check"
 				attendance.custom_review_reason = "Missing checkout (Auto-completed 17:00:00)"
 			elif not in_time and out_time:
-				attendance.arrival_time = "07:00:00"
+				attendance.custom_arrival_time = "07:00:00"
 				attendance.status = "Present"
 				attendance.custom_review_status = "Must Check"
 				attendance.custom_review_reason = "Missing checkin (Auto-completed 07:00:00)"
@@ -168,7 +168,7 @@ def custom_mark_attendance(
 	"""
 	Replaces standard mark_attendance (used when marking Absent for dates with 0 checkins):
 	1. Calls .save() instead of .submit() (docstatus = 0).
-	2. Sets arrival_time = "00:00:00" and departure_time = "00:00:00".
+	2. Sets custom_arrival_time = "00:00:00" and custom_departure_time = "00:00:00".
 	3. Flags custom_review_status = 'Must Check' with reason 'No checkins recorded'.
 	"""
 	savepoint = "attendance_creation"
@@ -190,8 +190,8 @@ def custom_mark_attendance(
 		)
 
 		if status == "Absent":
-			attendance.arrival_time = "00:00:00"
-			attendance.departure_time = "00:00:00"
+			attendance.custom_arrival_time = "00:00:00"
+			attendance.custom_departure_time = "00:00:00"
 			attendance.custom_review_status = "Must Check"
 			attendance.custom_review_reason = "No checkins recorded"
 

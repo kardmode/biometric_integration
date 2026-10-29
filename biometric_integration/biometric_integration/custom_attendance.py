@@ -50,8 +50,6 @@ class CustomAttendance(Attendance):
 	def calculate_total_hours(self):
 		# 1. Resolve Arrival Time
 		arrival_raw = getattr(self, "custom_arrival_time", None)
-		if not arrival_raw and getattr(self, "arrival_time", None):
-			arrival_raw = self.arrival_time
 		if not arrival_raw and self.in_time:
 			try:
 				arrival_raw = get_time(self.in_time).strftime("%H:%M:%S")
@@ -60,8 +58,6 @@ class CustomAttendance(Attendance):
 
 		# 2. Resolve Departure Time
 		departure_raw = getattr(self, "custom_departure_time", None)
-		if not departure_raw and getattr(self, "departure_time", None):
-			departure_raw = self.departure_time
 		if not departure_raw and self.out_time:
 			try:
 				departure_raw = get_time(self.out_time).strftime("%H:%M:%S")
@@ -87,10 +83,6 @@ class CustomAttendance(Attendance):
 
 		self.custom_arrival_time = arrival_str
 		self.custom_departure_time = departure_str
-		if hasattr(self, "arrival_time"):
-			self.arrival_time = arrival_str
-		if hasattr(self, "departure_time"):
-			self.departure_time = departure_str
 
 		totalworkhours = 0
 		try:
