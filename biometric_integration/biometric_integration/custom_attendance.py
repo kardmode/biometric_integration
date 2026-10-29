@@ -15,7 +15,6 @@ from frappe.utils import (
 	time_diff,
 	time_diff_in_seconds,
 )
-from frappe.query_builder.functions import Coalesce
 
 from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
 from hrms.hr.doctype.attendance.attendance import Attendance
@@ -199,15 +198,18 @@ class CustomAttendance(Attendance):
 	def check_leave_record(self):
 		"""
 		hrms check_leave_record, adjusted for MRP leave handling:
-		- Leave in MRP's 'Back From Leave' status still counts (hrms only matches 'Approved'),
-		  running to custom_actual_return_date when set, like the payroll LWP calculation.
+		- Leave in MRP's 'Back From Leave' status still counts (hrms only matches 'Approved').
+		  custom_actual_return_date is the first day back at work, so once recorded the leave
+		  ends the day before it (early or late return), otherwise on to_date.
 		- A holiday inside a leave whose Leave Type excludes holidays is not a leave day:
 		  it is marked Present rather than On Leave (or Absent).
 		"""
 		LeaveApplication = frappe.qb.DocType("Leave Application")
-		leave_end = LeaveApplication.to_date
+		within_leave_end = self.attendance_date <= LeaveApplication.to_date
 		if frappe.db.has_column("Leave Application", "custom_actual_return_date"):
-			leave_end = Coalesce(LeaveApplication.custom_actual_return_date, LeaveApplication.to_date)
+			within_leave_end = (
+				LeaveApplication.custom_actual_return_date.isnull() & (self.attendance_date <= LeaveApplication.to_date)
+			) | (self.attendance_date < LeaveApplication.custom_actual_return_date)
 
 		leave_record = (
 			frappe.qb.from_(LeaveApplication)
@@ -220,7 +222,7 @@ class CustomAttendance(Attendance):
 			.where(
 				(LeaveApplication.employee == self.employee)
 				& (self.attendance_date >= LeaveApplication.from_date)
-				& (self.attendance_date <= leave_end)
+				& within_leave_end
 				& (LeaveApplication.status.isin(["Approved", "Back From Leave"]))
 				& (LeaveApplication.docstatus == 1)
 			)
