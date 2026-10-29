@@ -15,7 +15,9 @@ from frappe.utils import (
 	time_diff,
 	time_diff_in_seconds,
 )
+from frappe.query_builder.functions import Coalesce
 
+from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
 from hrms.hr.doctype.attendance.attendance import Attendance
 
 
@@ -194,22 +196,87 @@ class CustomAttendance(Attendance):
 		self.custom_total_overtime = total_overtime_val
 		self.custom_overtime_type = overtime_type_val
 
-	def get_holidays_for_employee(self, start_date, end_date):
-		holidays = frappe.db.sql(
-			"""select t1.holiday_date
-			from `tabHoliday` t1, tabEmployee t2
-			where t1.parent = t2.holiday_list and t2.name = %s
-			and t1.holiday_date between %s and %s""",
-			(self.employee, start_date, end_date),
-		)
+	def check_leave_record(self):
+		"""
+		hrms check_leave_record, adjusted for MRP leave handling:
+		- Leave in MRP's 'Back From Leave' status still counts (hrms only matches 'Approved'),
+		  running to custom_actual_return_date when set, like the payroll LWP calculation.
+		- A holiday inside a leave whose Leave Type excludes holidays is not a leave day:
+		  it is marked Present rather than On Leave (or Absent).
+		"""
+		LeaveApplication = frappe.qb.DocType("Leave Application")
+		leave_end = LeaveApplication.to_date
+		if frappe.db.has_column("Leave Application", "custom_actual_return_date"):
+			leave_end = Coalesce(LeaveApplication.custom_actual_return_date, LeaveApplication.to_date)
 
-		if not holidays:
-			holidays = frappe.db.sql(
-				"""select t1.holiday_date
-				from `tabHoliday` t1, `tabHoliday List` t2
-				where t1.parent = t2.name and t2.is_default = 1
-				and t1.holiday_date between %s and %s""",
-				(start_date, end_date),
+		leave_record = (
+			frappe.qb.from_(LeaveApplication)
+			.select(
+				LeaveApplication.leave_type,
+				LeaveApplication.half_day,
+				LeaveApplication.half_day_date,
+				LeaveApplication.name,
 			)
+			.where(
+				(LeaveApplication.employee == self.employee)
+				& (self.attendance_date >= LeaveApplication.from_date)
+				& (self.attendance_date <= leave_end)
+				& (LeaveApplication.status.isin(["Approved", "Back From Leave"]))
+				& (LeaveApplication.docstatus == 1)
+			)
+		).run(as_dict=True)
 
-		return [cstr(i[0]) for i in holidays]
+		if leave_record and cstr(getdate(self.attendance_date)) in self.get_holidays_for_employee(
+			self.attendance_date, self.attendance_date
+		):
+			leave_record = [
+				d for d in leave_record if frappe.get_cached_value("Leave Type", d.leave_type, "include_holiday")
+			]
+			if not leave_record:
+				# holiday within the leave, not counted as leave: neither On Leave nor Absent
+				self.status = "Present"
+				self.leave_type = None
+				self.leave_application = None
+				return
+
+		if leave_record:
+			for d in leave_record:
+				self.leave_type = d.leave_type
+				self.leave_application = d.name
+				if d.half_day_date == getdate(self.attendance_date):
+					self.status = "Half Day"
+					frappe.msgprint(
+						_("Employee {0} on Half day on {1}").format(self.employee, format_date(self.attendance_date))
+					)
+				else:
+					self.status = "On Leave"
+					frappe.msgprint(
+						_("Employee {0} is on Leave on {1}").format(self.employee, format_date(self.attendance_date))
+					)
+
+		if self.status in ("On Leave", "Half Day"):
+			if not leave_record:
+				frappe.msgprint(
+					_("No leave record found for employee {0} on {1}").format(
+						self.employee, format_date(self.attendance_date)
+					),
+					alert=1,
+				)
+		elif self.leave_type:
+			self.leave_type = None
+			self.leave_application = None
+
+	def get_holidays_for_employee(self, start_date, end_date):
+		# The employee's holiday list, else the company default (same rule as erpnext). The old version fell
+		# back to a default list per date, so a day missing from the employee's own list could still count
+		# as a holiday, and it relied on an is_default field Holiday List doesn't have.
+		holiday_list = get_holiday_list_for_employee(self.employee, raise_exception=False)
+		if not holiday_list:
+			return []
+
+		holidays = frappe.get_all(
+			"Holiday",
+			filters={"parent": holiday_list, "holiday_date": ["between", [start_date, end_date]]},
+			pluck="holiday_date",
+		)
+		return [cstr(d) for d in holidays]

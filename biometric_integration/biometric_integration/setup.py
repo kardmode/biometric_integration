@@ -111,7 +111,9 @@ def setup_custom_fields():
 				"fieldname": "custom_overtime_type",
 				"label": "Overtime Type",
 				"fieldtype": "Select",
-				"options": "Weekdays\nWeekends\nHolidays",
+				# leading blank option: otherwise Frappe defaults new records to "Weekdays",
+				# making attendance that was never calculated look like a real weekday record
+				"options": "\nWeekdays\nWeekends\nHolidays",
 				"read_only": 1,
 				"insert_after": "custom_total_overtime",
 			},
